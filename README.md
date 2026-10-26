@@ -45,7 +45,7 @@ pytest                          # テスト
 
 ## クラウドにデプロイ
 
-`Dockerfile` 付き。Google Cloud Run / Fly.io などでそのまま動く。
+`Dockerfile` と `fly.toml` 付き。手順は [docs/deploy-flyio.md](docs/deploy-flyio.md)。
 注意: 模擬ポジションと記録はメモリとローカルファイルなので、コンテナ再起動で消える
 (本格運用前に永続ストレージへ。ペーパー検証中は 1 インスタンス固定にすること)。
 
