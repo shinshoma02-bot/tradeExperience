@@ -1,0 +1,29 @@
+//@version=5
+strategy("RSI Reversion (counter-trend)", overlay=true, pyramiding=0, process_orders_on_close=true)
+
+// ---- Webhook設定(TradingViewのアラートでこの戦略を選び、メッセージ欄に {{strategy.order.alert_message}} と入れる)----
+secret   = input.string("CHANGE_ME", "Webhook secret(.envのWEBHOOK_SECRETと同じ)")
+market   = input.string("crypto", "market", options=["crypto", "fx", "us_stock", "jp_stock", "futures"])
+stratId  = input.string("rsi_reversion", "strategy名(/reportで使われる)")
+qty      = input.float(0.01, "注文数量", minval=0.0)
+
+f_msg(act) =>
+    '{"secret":"' + secret + '","market":"' + market + '","strategy":"' + stratId +
+     '","symbol":"' + syminfo.ticker + '","action":"' + act + '","price":' + str.tostring(close) +
+     ',"qty":' + str.tostring(qty) + '}'
+
+// RSIが売られすぎから戻ったら買い、買われすぎから戻ったら売り。中立線で決済(逆張り)
+len  = input.int(14, "RSI期間", minval=2)
+lo   = input.int(30, "売られすぎ")
+hi   = input.int(70, "買われすぎ")
+r = ta.rsi(close, len)
+plot(r, "RSI", display=display.data_window)
+
+if ta.crossover(r, lo)
+    strategy.entry("L", strategy.long, qty=qty, alert_message=f_msg("buy"))
+if ta.crossunder(r, hi)
+    strategy.entry("S", strategy.short, qty=qty, alert_message=f_msg("sell"))
+if strategy.position_size > 0 and ta.crossover(r, 50)
+    strategy.close("L", alert_message=f_msg("close"))
+if strategy.position_size < 0 and ta.crossunder(r, 50)
+    strategy.close("S", alert_message=f_msg("close"))

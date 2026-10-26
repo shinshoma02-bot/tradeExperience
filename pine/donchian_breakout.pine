@@ -1,0 +1,25 @@
+//@version=5
+strategy("Donchian Breakout (momentum)", overlay=true, pyramiding=0, process_orders_on_close=true)
+
+// ---- Webhook設定(TradingViewのアラートでこの戦略を選び、メッセージ欄に {{strategy.order.alert_message}} と入れる)----
+secret   = input.string("CHANGE_ME", "Webhook secret(.envのWEBHOOK_SECRETと同じ)")
+market   = input.string("crypto", "market", options=["crypto", "fx", "us_stock", "jp_stock", "futures"])
+stratId  = input.string("donchian_breakout", "strategy名(/reportで使われる)")
+qty      = input.float(0.01, "注文数量", minval=0.0)
+
+f_msg(act) =>
+    '{"secret":"' + secret + '","market":"' + market + '","strategy":"' + stratId +
+     '","symbol":"' + syminfo.ticker + '","action":"' + act + '","price":' + str.tostring(close) +
+     ',"qty":' + str.tostring(qty) + '}'
+
+// 直近N本の高値を更新したら買い、安値を更新したら売り(ブレイクアウト)
+n = input.int(20, "期間", minval=2)
+upper = ta.highest(high, n)[1]
+lower = ta.lowest(low, n)[1]
+plot(upper, color=color.green)
+plot(lower, color=color.red)
+
+if close > upper
+    strategy.entry("L", strategy.long, qty=qty, alert_message=f_msg("buy"))
+if close < lower
+    strategy.entry("S", strategy.short, qty=qty, alert_message=f_msg("sell"))

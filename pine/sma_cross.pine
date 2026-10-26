@@ -1,0 +1,26 @@
+//@version=5
+strategy("SMA Cross (trend)", overlay=true, pyramiding=0, process_orders_on_close=true)
+
+// ---- Webhook設定(TradingViewのアラートでこの戦略を選び、メッセージ欄に {{strategy.order.alert_message}} と入れる)----
+secret   = input.string("CHANGE_ME", "Webhook secret(.envのWEBHOOK_SECRETと同じ)")
+market   = input.string("crypto", "market", options=["crypto", "fx", "us_stock", "jp_stock", "futures"])
+stratId  = input.string("sma_cross", "strategy名(/reportで使われる)")
+qty      = input.float(0.01, "注文数量", minval=0.0)
+
+f_msg(act) =>
+    '{"secret":"' + secret + '","market":"' + market + '","strategy":"' + stratId +
+     '","symbol":"' + syminfo.ticker + '","action":"' + act + '","price":' + str.tostring(close) +
+     ',"qty":' + str.tostring(qty) + '}'
+
+// 短期線が長期線を上抜けで買い、下抜けで売り(トレンドに乗る)
+fastLen = input.int(20, "短期SMA", minval=1)
+slowLen = input.int(50, "長期SMA", minval=2)
+fast = ta.sma(close, fastLen)
+slow = ta.sma(close, slowLen)
+plot(fast, color=color.orange)
+plot(slow, color=color.blue)
+
+if ta.crossover(fast, slow)
+    strategy.entry("L", strategy.long, qty=qty, alert_message=f_msg("buy"))
+if ta.crossunder(fast, slow)
+    strategy.entry("S", strategy.short, qty=qty, alert_message=f_msg("sell"))

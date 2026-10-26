@@ -55,3 +55,18 @@ pytest                          # テスト
 2. `/report` で勝てているマーケット×戦略を絞る
 3. 絞ったものだけ、`app/brokers/base.py` を継承して実ブローカー(取引所API)を実装
 4. 実ブローカーは最初ごく少額、APIキーは出金権限なし
+
+## Pine Script(`pine/`)
+
+| ファイル | タイプ | 中身 |
+|---|---|---|
+| `sma_cross.pine` | トレンドフォロー | SMAのゴールデン/デッドクロス |
+| `rsi_reversion.pine` | 逆張り | RSIの売られすぎ/買われすぎからの戻り |
+| `donchian_breakout.pine` | ブレイクアウト | 直近高値/安値の更新 |
+
+使い方: TradingViewのPineエディタに貼る → チャートに追加 → アラート作成で条件にその戦略を選び、
+メッセージ欄に `{{strategy.order.alert_message}}` と入れる → Webhook URLを指定。
+`secret` 入力欄に `.env` の値を入れる(**スクリプトは公開しない**こと。公開するとsecretが漏れる)。
+タイプの違う戦略を同じ銘柄で回すと、相場環境ごとの向き不向きが `/report` で比べられる。
+
+TradingViewなしの動作確認は `python scripts/send_signal.py --symbol BTCUSDT --action buy --price 65000 --qty 0.01`。
