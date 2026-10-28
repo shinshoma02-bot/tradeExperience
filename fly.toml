@@ -1,32 +1,35 @@
-# app 名は `fly launch --name` で上書きされる。リージョンは東京(nrt)。
-app = "tradeexperience"
-primary_region = "nrt"
+# fly.toml app configuration file generated for tradeexperience on 2026-10-28T02:01:25Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'tradeexperience'
+primary_region = 'nrt'
 
 [build]
 
 [env]
-  TRADING_MODE = "paper"
-  JOURNAL_PATH = "/srv/data/journal.jsonl"
+  JOURNAL_PATH = '/srv/data/journal.jsonl'
+  TRADING_MODE = 'paper'
 
 [[mounts]]
-  source = "data"
-  destination = "/srv/data"
+  source = 'data'
+  destination = '/srv/data'
 
 [http_service]
   internal_port = 8080
   force_https = true
-  # Webhookをいつでも受けられるよう、止めない・常に1台動かす
-  auto_stop_machines = "off"
+  auto_stop_machines = 'off'
   auto_start_machines = true
   min_machines_running = 1
 
   [[http_service.checks]]
-    method = "GET"
-    path = "/health"
-    interval = "30s"
-    timeout = "5s"
-    grace_period = "10s"
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '10s'
+    method = 'GET'
+    path = '/health'
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "256mb"
+  size = 'shared-cpu-1x'
+  memory = '256mb'
