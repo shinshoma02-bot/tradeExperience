@@ -62,4 +62,7 @@ class PaperBroker(Broker):
         )
 
     def positions(self) -> dict:
-        return {f"{s}:{sym}": {"qty": q, "avg_price": a} for (s, sym), (q, a) in self._pos.items()}
+        return {
+            f"{s}:{sym}": {"strategy": s, "symbol": sym, "qty": q, "avg_price": a}
+            for (s, sym), (q, a) in self._pos.items()
+        }

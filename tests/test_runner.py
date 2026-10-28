@@ -143,3 +143,18 @@ def test_parse_instruments_and_incomplete_candle_dropped():
     assert (ins[0].quote, ins[1].quote, ins[1].provider) == ("JPY", "USD", "kraken")
     cs = [Candle(0, 1, 1, 1), Candle(3600, 1, 1, 1), Candle(7200, 1, 1, 1)]
     assert [c.ts for c in _drop_incomplete(cs, 60, now=7300)] == [0, 3600]
+
+
+def test_unrealized_pnl_in_positions_and_report(tmp_path):
+    feed = {"c": candles([100.0] * 59)}
+    client, runner = make_client(tmp_path, feed)
+    runner.run_once()
+    feed["c"] = candles([100.0] * 59 + [110.0])      # donchian が 110 で買い(100USD分)
+    runner.run_once()
+    feed["c"] = candles([100.0] * 59 + [110.0] + [121.0])  # 同方向のままなので保有継続
+    runner.run_once()
+    p = client.get("/positions").json()["crypto"]["donchian_breakout:XBTUSD"]
+    assert p["side"] == "long" and p["mark_price"] == 121.0
+    assert abs(p["unrealized_pnl"] - (121 - 110) * p["qty"]) < 1e-9
+    rep = client.get("/report").json()["crypto/donchian_breakout"]
+    assert abs(rep["total_pnl_usd"] - rep["unrealized_pnl_usd"]) < 1e-9 and rep["realized_pnl_usd"] == 0

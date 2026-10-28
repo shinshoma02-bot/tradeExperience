@@ -68,7 +68,7 @@ def test_close_without_position_ignored(client):
 def test_report(client):
     client.post("/webhook", json=sig())
     client.post("/webhook", json=sig(action="close", price=105.0, qty=0))
-    assert client.get("/report").json()["crypto/t"] == {"fills": 2, "realized_pnl_usd": 5.0}
+    assert client.get("/report").json()["crypto/t"] == {"fills": 2, "realized_pnl_usd": 5.0, "total_pnl_usd": 5.0}
 
 
 def test_no_secret_configured_rejects_everything(tmp_path):

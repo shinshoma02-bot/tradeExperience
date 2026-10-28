@@ -33,6 +33,7 @@ class StrategyRunner:
         self.fetch, self.secret, self.alert = fetch, secret, alert
         self._last_ts: dict[tuple[str, str, str], int] = {}
         self._fail_cycles = 0
+        self.last_prices: dict[tuple[str, str], float] = {}  # 含み損益の計算用(直近の確定足の終値)
 
     def run_once(self) -> list[dict]:
         results = []
@@ -47,6 +48,7 @@ class StrategyRunner:
             if not candles:
                 continue
             last = candles[-1]
+            self.last_prices[(inst.market, inst.symbol)] = last.close
             for name, fn in STRATEGIES.items():
                 key = (inst.market, name, inst.symbol)
                 if key not in self._last_ts:

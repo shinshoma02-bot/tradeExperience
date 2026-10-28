@@ -107,10 +107,30 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
             raise HTTPException(status_code=401, detail="bad secret")
         return process(signal)
 
+    quotes = {(i.market, i.symbol): i.quote for i in parse_instruments(settings.runner_instruments)}
+
+    def with_unrealized() -> dict[str, dict]:
+        """ポジションに含み損益を付ける。評価価格は直近の確定足の終値(最大で足1本分=約1時間遅れ)。"""
+        with lock:
+            snap = {m: b.positions() for m, b in brokers.items()}
+        marks = runner.last_prices if runner else {}
+        out: dict[str, dict] = {}
+        for market, poss in snap.items():
+            out[market] = {}
+            for key, p in poss.items():
+                mark = marks.get((market, p["symbol"]))
+                quote = quotes.get((market, p["symbol"]), "USD")
+                row = {**p, "side": "long" if p["qty"] > 0 else "short", "quote": quote, "mark_price": mark}
+                if mark is not None:
+                    pnl = (mark - p["avg_price"]) * p["qty"]
+                    row["unrealized_pnl"] = round(pnl, 8)
+                    row["unrealized_pnl_usd"] = round(settings.to_usd(pnl, quote), 8)
+                out[market][key] = row
+        return out
+
     @app.get("/positions")
     def positions():
-        with lock:
-            return {m: b.positions() for m, b in brokers.items()}
+        return with_unrealized()
 
     @app.get("/report")
     def report():
@@ -124,6 +144,12 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
             s["fills"] += 1
             usd = settings.to_usd(f["realized_pnl"], f.get("quote", "USD"))
             s["realized_pnl_usd"] = round(s["realized_pnl_usd"] + usd, 8)
+        for market, poss in with_unrealized().items():
+            for p in poss.values():
+                s = stats.setdefault(f"{market}/{p['strategy']}", {"fills": 0, "realized_pnl_usd": 0.0})
+                s["unrealized_pnl_usd"] = round(s.get("unrealized_pnl_usd", 0.0) + p.get("unrealized_pnl_usd", 0.0), 8)
+        for s in stats.values():
+            s["total_pnl_usd"] = round(s["realized_pnl_usd"] + s.get("unrealized_pnl_usd", 0.0), 8)
         return stats
 
     return app
