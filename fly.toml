@@ -8,6 +8,10 @@ primary_region = "nrt"
   TRADING_MODE = "paper"
   JOURNAL_PATH = "/srv/data/journal.jsonl"
 
+[[mounts]]
+  source = "data"
+  destination = "/srv/data"
+
 [http_service]
   internal_port = 8080
   force_https = true

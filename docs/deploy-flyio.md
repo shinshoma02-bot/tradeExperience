@@ -34,8 +34,9 @@ fly launch --no-deploy --copy-config --name tradeexp-あなたの名前
 Postgres や Redis は **作らない**(No)。
 
 ## 5. (任意)記録用ディスクを作る(1GB)
-標準の `fly.toml` はディスクなしで動く(記録は再起動で消える)。残したい場合だけ、`fly.toml` に
-`[mounts]` `source = "data"` `destination = "/srv/data"` を足してから実行。
+標準の `fly.toml` は `data` という名前のディスクを使う設定。CLIなら下のコマンドで作る。
+ブラウザ(Launch app via UI)で作った場合は、初回デプロイで自動作成されたものを使う。
+**ディスクを一度作ったあとに `fly.toml` から `[[mounts]]` を消すと、デプロイが失敗する**ので消さないこと。
 ```bash
 fly volumes create data --region nrt --size 1
 ```
