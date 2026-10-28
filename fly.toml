@@ -10,6 +10,7 @@ primary_region = 'nrt'
 
 [env]
   JOURNAL_PATH = '/srv/data/journal.jsonl'
+  RUNNER_ENABLED = 'true'
   TRADING_MODE = 'paper'
 
 [[mounts]]
