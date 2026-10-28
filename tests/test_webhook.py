@@ -69,3 +69,9 @@ def test_report(client):
     client.post("/webhook", json=sig())
     client.post("/webhook", json=sig(action="close", price=105.0, qty=0))
     assert client.get("/report").json()["crypto/t"] == {"fills": 2, "realized_pnl": 5.0}
+
+
+def test_no_secret_configured_rejects_everything(tmp_path):
+    c = TestClient(create_app(Settings(webhook_secret="", journal_path=str(tmp_path / "j.jsonl"))))
+    assert c.get("/health").json()["secret_configured"] is False
+    assert c.post("/webhook", json=sig(secret="")).status_code == 503
