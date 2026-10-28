@@ -16,6 +16,10 @@ class Settings:
     kill_switch: bool = False
     enabled_markets: frozenset = field(default_factory=frozenset)
     journal_path: str = "data/journal.jsonl"
+    runner_enabled: bool = False
+    runner_symbols: tuple = ("XBTUSD", "ETHUSD")
+    runner_interval_min: int = 60
+    runner_order_notional: float = 100.0
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -33,4 +37,8 @@ class Settings:
                 if m.strip()
             ),
             journal_path=env("JOURNAL_PATH", "data/journal.jsonl"),
+            runner_enabled=_bool(env("RUNNER_ENABLED", "false")),
+            runner_symbols=tuple(x.strip() for x in env("RUNNER_SYMBOLS", "XBTUSD,ETHUSD").split(",") if x.strip()),
+            runner_interval_min=int(env("RUNNER_INTERVAL_MIN", "60")),
+            runner_order_notional=float(env("RUNNER_ORDER_NOTIONAL", "100")),
         )
