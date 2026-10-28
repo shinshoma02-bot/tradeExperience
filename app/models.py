@@ -15,6 +15,7 @@ class Signal(BaseModel):
     action: Literal["buy", "sell", "close"]
     price: float = Field(gt=0, description="TradingViewの {{close}} を渡す")
     qty: float = Field(default=0, ge=0, description="close のときは省略可")
+    quote: str = Field(default="USD", description="価格の通貨。JPY なら円建て")
 
 
 class Fill(BaseModel):
@@ -27,3 +28,4 @@ class Fill(BaseModel):
     qty: float
     price: float
     realized_pnl: float = 0.0
+    quote: str = "USD"

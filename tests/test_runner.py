@@ -38,9 +38,9 @@ def test_rsi_buy_after_oversold_and_close_at_50():
 
 def make_client(tmp_path, feed):
     s = Settings(webhook_secret="x", journal_path=str(tmp_path / "j.jsonl"),
-                 runner_enabled=True, runner_symbols=("XBTUSD",), runner_order_notional=100,
+                 runner_enabled=True, runner_instruments="crypto:kraken:XBTUSD", runner_order_notional=100,
                  max_notional_per_order=1000, enabled_markets=frozenset({"crypto"}))
-    app = create_app(s, runner_fetch=lambda sym, iv: feed["c"])
+    app = create_app(s, runner_fetch=lambda inst, iv: feed["c"])
     return TestClient(app), app.state.runner
 
 
@@ -81,9 +81,9 @@ def test_notifications_fill_reject_and_runner_failure(tmp_path):
 
     feed = {"c": candles([100.0] * 59)}
     s = Settings(webhook_secret="x", journal_path=str(tmp_path / "j.jsonl"), runner_enabled=True,
-                 runner_symbols=("XBTUSD",), runner_order_notional=100, enabled_markets=frozenset({"crypto"}),
+                 runner_instruments="crypto:kraken:XBTUSD", runner_order_notional=100, enabled_markets=frozenset({"crypto"}),
                  max_notional_per_order=1000)
-    app = create_app(s, runner_fetch=lambda sym, iv: feed["c"], notifier=n)
+    app = create_app(s, runner_fetch=lambda inst, iv: feed["c"], notifier=n)
     runner = app.state.runner
     runner.run_once()
     feed["c"] = candles([100.0] * 59 + [110.0])
@@ -95,7 +95,7 @@ def test_notifications_fill_reject_and_runner_failure(tmp_path):
                                       action="buy", price=1.0, qty=1))
     assert ("注文を拒否", "high") in sent
 
-    def boom(sym, iv):
+    def boom(inst, iv):
         raise OSError("down")
     runner.fetch = boom
     for _ in range(5):
@@ -116,3 +116,30 @@ def test_notifier_dedupe_and_disabled():
     off.send("a", "b")
     time.sleep(0.1)
     assert len(calls) == 1
+
+
+def test_stock_never_shorts_and_jpy_is_converted(tmp_path):
+    feed = {"c": candles([100.0] * 59)}
+    s = Settings(webhook_secret="x", journal_path=str(tmp_path / "j.jsonl"), runner_enabled=True,
+                 runner_instruments="us_stock:yahoo:AAPL,jp_stock:yahoo:7203.T:JPY",
+                 runner_order_notional=100, max_notional_per_order=1000, jpy_per_usd=150,
+                 enabled_markets=frozenset({"us_stock", "jp_stock"}))
+    app = create_app(s, runner_fetch=lambda inst, iv: feed["c"])
+    runner = app.state.runner
+    runner.run_once()
+    feed["c"] = candles([100.0] * 59 + [80.0])          # 下抜け: 株は空売りしない
+    assert runner.run_once() == []
+    assert all(not v for v in TestClient(app).get("/positions").json().values())
+    feed["c"] = candles([100.0] * 59 + [80.0] + [200.0])  # 上抜け: 買い
+    out = runner.run_once()
+    jp = [r["fill"] for r in out if r["status"] == "filled" and r["fill"]["market"] == "jp_stock"]
+    assert jp and abs(jp[0]["qty"] * jp[0]["price"] - 100 * 150) < 1e-6  # 100USD相当=15000円
+
+
+def test_parse_instruments_and_incomplete_candle_dropped():
+    from app.runner.data import _drop_incomplete, parse_instruments
+
+    ins = parse_instruments("fx:yahoo:USDJPY=X:JPY, crypto:kraken:XBTUSD")
+    assert (ins[0].quote, ins[1].quote, ins[1].provider) == ("JPY", "USD", "kraken")
+    cs = [Candle(0, 1, 1, 1), Candle(3600, 1, 1, 1), Candle(7200, 1, 1, 1)]
+    assert [c.ts for c in _drop_incomplete(cs, 60, now=7300)] == [0, 3600]

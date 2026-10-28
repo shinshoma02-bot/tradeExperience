@@ -13,6 +13,7 @@ from app.journal import Journal
 from app.models import Signal
 from app.notify import Notifier
 from app.risk import RiskError, RiskManager
+from app.runner.data import parse_instruments
 from app.runner.runner import StrategyRunner
 
 
@@ -46,7 +47,7 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
                 journal.write("ignored", signal=payload)
                 return {"status": "ignored"}
 
-            risk.record(fill.realized_pnl)
+            risk.record(fill.realized_pnl, fill.quote)
             journal.write("fill", signal=payload, fill=fill.model_dump())
             pnl = f" 損益 {fill.realized_pnl:+.2f}" if fill.realized_pnl else ""
             notifier.send(
@@ -55,9 +56,9 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
             )
             return {"status": "filled", "fill": fill.model_dump()}
 
-    def get_position(strategy: str, symbol: str) -> float:
+    def get_position(market: str, strategy: str, symbol: str) -> float:
         with lock:
-            pos = brokers["crypto"].positions().get(f"{strategy}:{symbol}")
+            pos = brokers[market].positions().get(f"{strategy}:{symbol}")
         return pos["qty"] if pos else 0.0
 
     runner = None
@@ -66,9 +67,10 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
         runner = StrategyRunner(
             handle=process,
             get_position=get_position,
-            symbols=list(settings.runner_symbols),
+            instruments=parse_instruments(settings.runner_instruments),
             interval_min=settings.runner_interval_min,
-            order_notional=settings.runner_order_notional,
+            order_notional_usd=settings.runner_order_notional,
+            to_quote=lambda usd, quote: usd * settings.jpy_per_usd if quote == "JPY" else usd,
             alert=lambda m: notifier.send("ランナー異常", m, "urgent", dedupe_key="runner-fail"),
             **kw,
         )
@@ -112,15 +114,16 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
 
     @app.get("/report")
     def report():
-        """マーケット×戦略ごとの成績(確定損益・約定回数)。どれが勝てるか比べる用。"""
+        """マーケット×戦略ごとの成績(確定損益はUSD換算・約定回数)。どれが勝てるか比べる用。"""
         stats: dict[str, dict] = {}
         for row in journal.read():
             if row["kind"] != "fill":
                 continue
             f = row["fill"]
-            s = stats.setdefault(f"{f['market']}/{f['strategy']}", {"fills": 0, "realized_pnl": 0.0})
+            s = stats.setdefault(f"{f['market']}/{f['strategy']}", {"fills": 0, "realized_pnl_usd": 0.0})
             s["fills"] += 1
-            s["realized_pnl"] = round(s["realized_pnl"] + f["realized_pnl"], 8)
+            usd = settings.to_usd(f["realized_pnl"], f.get("quote", "USD"))
+            s["realized_pnl_usd"] = round(s["realized_pnl_usd"] + usd, 8)
         return stats
 
     return app

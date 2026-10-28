@@ -17,11 +17,20 @@ class Settings:
     enabled_markets: frozenset = field(default_factory=frozenset)
     journal_path: str = "data/journal.jsonl"
     runner_enabled: bool = False
-    runner_symbols: tuple = ("XBTUSD", "ETHUSD")
+    runner_instruments: str = (
+        "crypto:kraken:XBTUSD,crypto:kraken:ETHUSD,"
+        "fx:yahoo:USDJPY=X:JPY,fx:yahoo:EURUSD=X,"
+        "us_stock:yahoo:AAPL,us_stock:yahoo:NVDA,"
+        "jp_stock:yahoo:7203.T:JPY,futures:yahoo:ES=F"
+    )
     runner_interval_min: int = 60
     runner_order_notional: float = 100.0
+    jpy_per_usd: float = 150.0  # 円建て銘柄を米ドルに直す概算レート(模擬用)
     ntfy_topic: str = ""
     ntfy_server: str = "https://ntfy.sh"
+
+    def to_usd(self, amount: float, quote: str) -> float:
+        return amount / self.jpy_per_usd if quote == "JPY" else amount
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -40,9 +49,10 @@ class Settings:
             ),
             journal_path=env("JOURNAL_PATH", "data/journal.jsonl"),
             runner_enabled=_bool(env("RUNNER_ENABLED", "false")),
-            runner_symbols=tuple(x.strip() for x in env("RUNNER_SYMBOLS", "XBTUSD,ETHUSD").split(",") if x.strip()),
+            runner_instruments=env("RUNNER_INSTRUMENTS", cls.runner_instruments),
             runner_interval_min=int(env("RUNNER_INTERVAL_MIN", "60")),
             runner_order_notional=float(env("RUNNER_ORDER_NOTIONAL", "100")),
+            jpy_per_usd=float(env("JPY_PER_USD", "150")),
             ntfy_topic=env("NTFY_TOPIC", ""),
             ntfy_server=env("NTFY_SERVER", "https://ntfy.sh"),
         )

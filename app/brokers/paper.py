@@ -58,6 +58,7 @@ class PaperBroker(Broker):
             qty=trade_qty,
             price=signal.price,
             realized_pnl=round(pnl, 8),
+            quote=signal.quote,
         )
 
     def positions(self) -> dict:

@@ -32,11 +32,11 @@ class RiskManager:
             raise RiskError("1日の損失上限に達したため本日は停止中")
         if self._orders >= self.s.max_orders_per_day:
             raise RiskError("1日の注文回数の上限に達しました")
-        notional = signal.price * signal.qty
+        notional = self.s.to_usd(signal.price * signal.qty, signal.quote)
         if signal.action != "close" and notional > self.s.max_notional_per_order:
-            raise RiskError(f"1注文の上限金額超過: {notional:.2f} > {self.s.max_notional_per_order}")
+            raise RiskError(f"1注文の上限金額超過: {notional:.2f}USD > {self.s.max_notional_per_order}")
 
-    def record(self, realized_pnl: float) -> None:
+    def record(self, realized_pnl: float, quote: str = "USD") -> None:
         self._orders += 1
         if realized_pnl < 0:
-            self._loss += -realized_pnl
+            self._loss += -self.s.to_usd(realized_pnl, quote)
