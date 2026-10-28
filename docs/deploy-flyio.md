@@ -33,7 +33,9 @@ fly launch --no-deploy --copy-config --name tradeexp-あなたの名前
 途中で「設定を上書きするか?」と聞かれたら、既存の `fly.toml` を使う(No / コピーを選ぶ)。
 Postgres や Redis は **作らない**(No)。
 
-## 5. 記録用ディスクを作る(1GB)
+## 5. (任意)記録用ディスクを作る(1GB)
+標準の `fly.toml` はディスクなしで動く(記録は再起動で消える)。残したい場合だけ、`fly.toml` に
+`[mounts]` `source = "data"` `destination = "/srv/data"` を足してから実行。
 ```bash
 fly volumes create data --region nrt --size 1
 ```
@@ -78,6 +80,7 @@ curl $BASE_URL/report
 ## 困ったとき
 | 症状 | 見る場所 |
 |---|---|
+| デプロイが終わらない/ヘルスチェック失敗 | まず `WEBHOOK_SECRET` を登録したか確認(未登録だとアプリが起動直後に落ちる)。ダッシュボードの Secrets か `fly secrets set` |
 | 起動しない | `fly logs`。`WEBHOOK_SECRET が未設定` なら手順6をやり直す |
 | 401 が返る | secret がTradingView側とずれている |
 | 注文が `rejected` | `/report` ではなく `fly ssh console` で `cat /srv/data/journal.jsonl` に理由が残る |
