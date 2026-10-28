@@ -11,16 +11,18 @@ from app.brokers.paper import PaperBroker
 from app.config import Settings
 from app.journal import Journal
 from app.models import Signal
+from app.notify import Notifier
 from app.risk import RiskError, RiskManager
 from app.runner.runner import StrategyRunner
 
 
-def create_app(settings: Settings | None = None, runner_fetch=None) -> FastAPI:
+def create_app(settings: Settings | None = None, runner_fetch=None, notifier: Notifier | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     if settings.trading_mode != "paper":
         # 実ブローカー実装までは安全のため paper 以外では起動させない
         raise RuntimeError("現在は TRADING_MODE=paper のみ対応です")
 
+    notifier = notifier or Notifier(settings.ntfy_topic, settings.ntfy_server)
     risk = RiskManager(settings)
     journal = Journal(settings.journal_path)
     # マーケットごとに1つブローカーを持つ。実ブローカーはここを差し替えるだけ。
@@ -35,6 +37,8 @@ def create_app(settings: Settings | None = None, runner_fetch=None) -> FastAPI:
                 risk.check(signal)
             except RiskError as e:
                 journal.write("rejected", signal=payload, reason=str(e))
+                notifier.send("注文を拒否", f"{signal.market}/{signal.strategy} {signal.symbol} {signal.action}\n理由: {e}",
+                              "high", dedupe_key=f"rej:{e}")
                 return {"status": "rejected", "reason": str(e)}
 
             fill = brokers[signal.market].execute(signal)
@@ -44,6 +48,11 @@ def create_app(settings: Settings | None = None, runner_fetch=None) -> FastAPI:
 
             risk.record(fill.realized_pnl)
             journal.write("fill", signal=payload, fill=fill.model_dump())
+            pnl = f" 損益 {fill.realized_pnl:+.2f}" if fill.realized_pnl else ""
+            notifier.send(
+                f"約定 {fill.side} {fill.symbol}",
+                f"{fill.market}/{fill.strategy}\n{fill.qty:g} @ {fill.price:g}{pnl}(模擬)",
+            )
             return {"status": "filled", "fill": fill.model_dump()}
 
     def get_position(strategy: str, symbol: str) -> float:
@@ -60,12 +69,14 @@ def create_app(settings: Settings | None = None, runner_fetch=None) -> FastAPI:
             symbols=list(settings.runner_symbols),
             interval_min=settings.runner_interval_min,
             order_notional=settings.runner_order_notional,
+            alert=lambda m: notifier.send("ランナー異常", m, "urgent", dedupe_key="runner-fail"),
             **kw,
         )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         task = None
+        notifier.send("サーバー起動", f"tradeExperience 起動(mode={settings.trading_mode}, runner={bool(runner)})", "low")
         if runner and runner_fetch is None:  # テスト時は自動ループを動かさない
             task = asyncio.create_task(runner.loop(every_sec=60))
         yield
@@ -82,6 +93,7 @@ def create_app(settings: Settings | None = None, runner_fetch=None) -> FastAPI:
             "mode": settings.trading_mode,
             "secret_configured": bool(settings.webhook_secret),
             "runner": bool(runner),
+            "notify": notifier.enabled,
         }
 
     @app.post("/webhook")

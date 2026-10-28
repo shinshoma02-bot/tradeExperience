@@ -21,19 +21,24 @@ class StrategyRunner:
         order_notional: float,
         fetch: Callable[[str, int], list[Candle]] = fetch_kraken,
         secret: str = "",
+        alert: Callable[[str], None] = lambda msg: None,
     ) -> None:
         self.handle, self.get_position = handle, get_position
         self.symbols, self.interval_min = symbols, interval_min
         self.order_notional, self.fetch, self.secret = order_notional, fetch, secret
         self._last_ts: dict[tuple[str, str], int] = {}
+        self.alert = alert
+        self._fail_cycles = 0
 
     def run_once(self) -> list[dict]:
         results = []
+        failed = 0
         for symbol in self.symbols:
             try:
                 candles = self.fetch(symbol, self.interval_min)
             except Exception as e:  # ネットワーク不調で全体を止めない
                 log.warning("fetch failed %s: %s", symbol, e)
+                failed += 1
                 continue
             if not candles:
                 continue
@@ -51,6 +56,10 @@ class StrategyRunner:
                 action = fn(candles, pos)
                 if action:
                     results += self._send(name, symbol, action, pos, last.close)
+        # 全銘柄の取得が5サイクル連続で失敗したら1回だけ知らせる(回復したらリセット)
+        self._fail_cycles = self._fail_cycles + 1 if self.symbols and failed == len(self.symbols) else 0
+        if self._fail_cycles == 5:
+            self.alert("価格データを取得できません(5回連続)。取引所APIの不調か、サーバーのネットワーク問題の可能性")
         return results
 
     def _send(self, name: str, symbol: str, action: str, pos: float, price: float) -> list[dict]:

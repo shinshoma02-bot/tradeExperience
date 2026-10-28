@@ -69,3 +69,50 @@ def test_runner_reverses_position(tmp_path):
     assert "sell" in sides
     pos = client.get("/positions").json()["crypto"]
     assert pos["donchian_breakout:XBTUSD"]["qty"] < 0
+
+
+def test_notifications_fill_reject_and_runner_failure(tmp_path):
+    from app.notify import Notifier
+
+    sent = []
+    n = Notifier("t", sender=lambda title, msg, pr: sent.append((title, msg, pr)))
+    # 同期的に確認できるよう、スレッドを使わず直接送る
+    n.send = lambda title, message, priority="default", dedupe_key=None, dedupe_sec=3600: sent.append((title, priority))
+
+    feed = {"c": candles([100.0] * 59)}
+    s = Settings(webhook_secret="x", journal_path=str(tmp_path / "j.jsonl"), runner_enabled=True,
+                 runner_symbols=("XBTUSD",), runner_order_notional=100, enabled_markets=frozenset({"crypto"}),
+                 max_notional_per_order=1000)
+    app = create_app(s, runner_fetch=lambda sym, iv: feed["c"], notifier=n)
+    runner = app.state.runner
+    runner.run_once()
+    feed["c"] = candles([100.0] * 59 + [110.0])
+    runner.run_once()
+    assert any(t.startswith("約定") for t, _ in sent)
+
+    client = TestClient(app)
+    client.post("/webhook", json=dict(secret="x", market="fx", strategy="t", symbol="USDJPY",
+                                      action="buy", price=1.0, qty=1))
+    assert ("注文を拒否", "high") in sent
+
+    def boom(sym, iv):
+        raise OSError("down")
+    runner.fetch = boom
+    for _ in range(5):
+        runner.run_once()
+    assert ("ランナー異常", "urgent") in sent
+
+
+def test_notifier_dedupe_and_disabled():
+    from app.notify import Notifier
+
+    calls = []
+    n = Notifier("t", sender=lambda *a: calls.append(a))
+    n.send("a", "b", dedupe_key="k")
+    n.send("a", "b", dedupe_key="k")
+    import time; time.sleep(0.2)
+    assert len(calls) == 1
+    off = Notifier("", sender=lambda *a: calls.append(a))
+    off.send("a", "b")
+    time.sleep(0.1)
+    assert len(calls) == 1

@@ -20,6 +20,8 @@ class Settings:
     runner_symbols: tuple = ("XBTUSD", "ETHUSD")
     runner_interval_min: int = 60
     runner_order_notional: float = 100.0
+    ntfy_topic: str = ""
+    ntfy_server: str = "https://ntfy.sh"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -41,4 +43,6 @@ class Settings:
             runner_symbols=tuple(x.strip() for x in env("RUNNER_SYMBOLS", "XBTUSD,ETHUSD").split(",") if x.strip()),
             runner_interval_min=int(env("RUNNER_INTERVAL_MIN", "60")),
             runner_order_notional=float(env("RUNNER_ORDER_NOTIONAL", "100")),
+            ntfy_topic=env("NTFY_TOPIC", ""),
+            ntfy_server=env("NTFY_SERVER", "https://ntfy.sh"),
         )
