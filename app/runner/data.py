@@ -54,9 +54,9 @@ def fetch_kraken(symbol: str, interval_min: int) -> list[Candle]:
     return [Candle(int(r[0]), float(r[2]), float(r[3]), float(r[4])) for r in rows]
 
 
-def fetch_yahoo(symbol: str, interval_min: int) -> list[Candle]:
+def fetch_yahoo(symbol: str, interval_min: int, days: int = 30) -> list[Candle]:
     """Yahoo Finance(非公式・キー不要)。FX は USDJPY=X、日本株は 7203.T、先物は ES=F の形式。"""
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval={interval_min}m&range=30d"
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval={interval_min}m&range={days}d"
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=15) as r:
         body = json.load(r)
@@ -75,5 +75,8 @@ def fetch_yahoo(symbol: str, interval_min: int) -> list[Candle]:
 FETCHERS = {"kraken": fetch_kraken, "yahoo": fetch_yahoo}
 
 
-def fetch_candles(inst: Instrument, interval_min: int) -> list[Candle]:
-    return _drop_incomplete(FETCHERS[inst.provider](inst.symbol, interval_min), interval_min)
+def fetch_candles(inst: Instrument, interval_min: int, days: int | None = None) -> list[Candle]:
+    """days は Yahoo のときだけ効く(バックテストで長く取る用)。Kraken は直近720本が上限。"""
+    fn = FETCHERS[inst.provider]
+    raw = fn(inst.symbol, interval_min, days) if (days and inst.provider == "yahoo") else fn(inst.symbol, interval_min)
+    return _drop_incomplete(raw, interval_min)

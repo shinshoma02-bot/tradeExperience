@@ -12,6 +12,25 @@ log = logging.getLogger("runner")
 NO_SHORT_MARKETS = {"us_stock", "jp_stock"}
 
 
+def plan_orders(market: str, action: str, pos: float) -> list[str]:
+    """戦略の出したシグナルと現在の保有から、実際に出す注文(close/buy/sell)の列を決める。
+
+    ランナーとバックテストの両方がこれを使うので、検証と本番で売買ルールがずれない。
+    """
+    if action == "close":
+        return ["close"]
+    out = []
+    # 反対ポジションがあれば先に決済(ドテン)
+    if (action == "buy" and pos < 0) or (action == "sell" and pos > 0):
+        out.append("close")
+    if (action == "buy" and pos > 0) or (action == "sell" and pos < 0):
+        return out  # 同方向を既に持っている
+    if action == "sell" and market in NO_SHORT_MARKETS:
+        return out  # 株は新規の売り(空売り)をしない
+    out.append(action)
+    return out
+
+
 class StrategyRunner:
     """定期的に価格を取って戦略を計算し、シグナルを handle(webhookと同じ経路)に流す。"""
 
@@ -73,18 +92,13 @@ class StrategyRunner:
             return Signal(secret=self.secret, market=inst.market, strategy=name, symbol=inst.symbol,
                           action=a, price=price, qty=qty, quote=inst.quote)
 
-        if action == "close":
-            return [self.handle(sig("close"))]
         out = []
-        # 反対ポジションがあれば先に決済(ドテン)
-        if (action == "buy" and pos < 0) or (action == "sell" and pos > 0):
-            out.append(self.handle(sig("close")))
-        if (action == "buy" and pos > 0) or (action == "sell" and pos < 0):
-            return out  # 同方向を既に持っている
-        if action == "sell" and inst.market in NO_SHORT_MARKETS:
-            return out  # 株は新規の売り(空売り)をしない
-        qty = self.to_quote(self.order_notional_usd, inst.quote) / price
-        out.append(self.handle(sig(action, qty)))
+        for o in plan_orders(inst.market, action, pos):
+            if o == "close":
+                out.append(self.handle(sig("close")))
+            else:
+                qty = self.to_quote(self.order_notional_usd, inst.quote) / price
+                out.append(self.handle(sig(o, qty)))
         return out
 
     async def loop(self, every_sec: int) -> None:

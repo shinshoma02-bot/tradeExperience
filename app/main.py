@@ -1,6 +1,7 @@
 import asyncio
 import hmac
 import threading
+import time
 from datetime import date
 from collections import defaultdict
 from contextlib import asynccontextmanager
@@ -14,11 +15,13 @@ from app.journal import Journal
 from app.models import Signal
 from app.notify import Notifier
 from app.risk import RiskError, RiskManager
-from app.runner.data import parse_instruments
+from app.runner.backtest import run_all
+from app.runner.data import fetch_candles, parse_instruments
 from app.runner.runner import StrategyRunner
 
 
-def create_app(settings: Settings | None = None, runner_fetch=None, notifier: Notifier | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, runner_fetch=None, notifier: Notifier | None = None,
+               backtest_fetch=None) -> FastAPI:
     settings = settings or Settings.from_env()
     if settings.trading_mode != "paper":
         # 実ブローカー実装までは安全のため paper 以外では起動させない
@@ -172,5 +175,27 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
         for s in stats.values():
             s["total_pnl_usd"] = round(s["realized_pnl_usd"] + s.get("unrealized_pnl_usd", 0.0), 8)
         return stats
+
+    bt_cache: dict[tuple, tuple[float, dict]] = {}
+
+    @app.get("/backtest")
+    def backtest(days: int = 180, fee_bps: float = 5.0):
+        """過去の足で戦略を試した結果。公開データを取りに行くので重い(結果は1時間キャッシュ)。"""
+        days, fee_bps = max(7, min(days, 700)), max(0.0, min(fee_bps, 100.0))
+        key = (days, fee_bps)
+        hit = bt_cache.get(key)
+        if hit and time.time() - hit[0] < 3600:
+            return hit[1]
+        fetch = backtest_fetch or (lambda inst: fetch_candles(inst, settings.runner_interval_min, days=days))
+        out = run_all(
+            parse_instruments(settings.runner_instruments), fetch,
+            order_notional_usd=settings.runner_order_notional, fee_bps=fee_bps, to_usd=settings.to_usd,
+            to_quote=lambda usd, q: usd * settings.jpy_per_usd if q == "JPY" else usd,
+        )
+        out["note"] = ("損益は1注文あたりの想定金額(USD)での合計。手数料は片道fee_bps。スリッページなし。"
+                       "期間は銘柄ごとに異なる(暗号資産は直近約30日)。過去の結果は将来を保証しない")
+        out["days"], out["fee_bps"] = days, fee_bps
+        bt_cache[key] = (time.time(), out)
+        return out
 
     return app

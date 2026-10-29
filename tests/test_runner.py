@@ -175,3 +175,22 @@ def test_positions_restored_from_journal_after_restart(tmp_path):
     # 復元後の決済で正しく損益が出る(価格が下がった=売りの利益)
     r = c2.post("/webhook", json={**sig, "action": "close", "price": 7700.0, "qty": 0}).json()
     assert r["fill"]["realized_pnl"] > 0
+
+
+def test_backtest_endpoint_and_plan_orders(tmp_path):
+    from app.runner.runner import plan_orders
+
+    assert plan_orders("fx", "buy", -1) == ["close", "buy"]
+    assert plan_orders("fx", "buy", 1) == []
+    assert plan_orders("us_stock", "sell", 0) == []
+    assert plan_orders("us_stock", "sell", 1) == ["close"]
+    assert plan_orders("crypto", "close", 0) == ["close"]
+
+    up = [100.0] * 59 + [100 + i * 2 for i in range(1, 80)]  # 横ばい→上昇トレンド
+    s = Settings(webhook_secret="x", journal_path=str(tmp_path / "j.jsonl"),
+                 runner_instruments="crypto:kraken:XBTUSD")
+    c = TestClient(create_app(s, backtest_fetch=lambda inst: candles(up)))
+    r = c.get("/backtest").json()
+    assert r["errors"] == [] and len(r["results"]) == 3
+    donch = next(x for x in r["results"] if x["strategy"] == "donchian_breakout")
+    assert donch["pnl_usd"] > 0 and donch["buy_hold_pct"] > 0   # 上昇相場でブレイクアウトは儲かる
