@@ -33,6 +33,7 @@ def load_buys(path):
 def yahoo(sym):
     p = os.path.join(D, f"px_{sym}.json")
     if not os.path.exists(p):
+        time.sleep(0.08)
         u = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?interval=1d&period1=0&period2={int(time.time())}"
         try: open(p, "wb").write(get(u, "Mozilla/5.0"))
         except Exception: open(p, "w").write("{}")
@@ -48,12 +49,16 @@ def hold_ret(px, d0, months):
     return px.iloc[j] / px.iloc[i] - 1 if j < len(px) else np.nan
 
 def main():
-    y0, y1 = (int(sys.argv[1]), int(sys.argv[2])) if len(sys.argv) > 2 else (2010, 2025)
-    try: fetch_quarter(y0, 1)
-    except urllib.error.HTTPError as e:
-        print(f"SEC取得失敗: HTTP {e.code} (UA='{UA}')。内部者買いの検証は実施できない。"); return
-    frames = [load_buys(fetch_quarter(y, q)) for y in range(y0, y1 + 1) for q in (1, 2, 3, 4)
-              if not (y == 2026 and q > 3)]
+    import glob
+    local = sorted(glob.glob(os.path.join(D, "[0-9][0-9][0-9][0-9]q[1-4].zip")))   # 手元にある四半期だけ使う(欠けた四半期は飛ばす)
+    if not local:
+        y0, y1 = (int(sys.argv[1]), int(sys.argv[2])) if len(sys.argv) > 2 else (2010, 2025)
+        try: fetch_quarter(y0, 1)
+        except urllib.error.HTTPError as e:
+            print(f"SEC取得失敗: HTTP {e.code} (UA='{UA}')。ZIPを research/data/sec/ に YYYYqN.zip の名前で置けば検証できる。"); return
+        local = [fetch_quarter(y, q) for y in range(y0, y1 + 1) for q in (1, 2, 3, 4) if not (y == 2026 and q > 3)]
+    print("使う四半期:", [os.path.basename(x)[:6] for x in local])
+    frames = [load_buys(x) for x in local]
     b = pd.concat(frames); b["fd"] = pd.to_datetime(b.FILING_DATE, format="%d-%b-%Y")
     b = b.dropna(subset=["ISSUERTRADINGSYMBOL"]); b["sym"] = b.ISSUERTRADINGSYMBOL.str.upper()
     # 銘柄ごと: 30日以内に3人以上 → クラスターの最初のトリガー日のみイベント(重複抑制)
@@ -76,11 +81,12 @@ def main():
         for m in (3, 6, 12):
             r = [(e.fd, hold_ret(px[e.sym], e.fd, m) - hold_ret(spy, e.fd, m)) for e in g.itertuples() if px[e.sym] is not None]
             r = pd.DataFrame(r, columns=["fd", "x"]).dropna()
-            if len(r) < 20: continue
+            if len(r) < 20:
+                print(f"{kind:9s} {m:2d}M n={len(r)} (少なすぎて評価しない)"); continue
             # 月単位でクラスタ化したt値(同時期イベントの相関を考慮)
             mm = r.groupby(r.fd.dt.to_period("M")).x.mean(); t = mm.mean() / (mm.std() / np.sqrt(len(mm)))
-            h = r[r.fd < "2018-01-01"].x.mean(), r[r.fd >= "2018-01-01"].x.mean()
-            print(f"{kind:9s} {m:2d}M n={len(r):5d} 超過{r.x.mean():+.2%} t={t:.2f} 前半{h[0]:+.2%} 後半{h[1]:+.2%} コスト0.2%往復後{r.x.mean()-0.002:+.2%}")
+            h = r[r.fd < "2026-01-01"].x.mean(), r[r.fd >= "2026-01-01"].x.mean()   # 標本が短いので2025年/2026年で分ける
+            print(f"{kind:9s} {m:2d}M n={len(r):5d} 超過{r.x.mean():+.2%} t={t:.2f} 2025年{h[0]:+.2%} 2026年{h[1]:+.2%} コスト0.2%往復後{r.x.mean()-0.002:+.2%}")
     print("試したパターン数: 3種類のイベント x 3保有期間 = 9 (多重比較に注意)")
 
 if __name__ == "__main__": main()
