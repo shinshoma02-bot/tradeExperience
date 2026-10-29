@@ -201,7 +201,7 @@ def build_rf(irx, idx, jp=False):
 
 def validate(refresh):
     print("\n=== 1. 合成レバレッジ vs 実在ETF(日次リターン。ETFは配当込み調整後終値。1570.Tは終値) ===")
-    pairs = [("SSO", "^GSPC", 2), ("SPXL", "^GSPC", 3), ("UPRO", "^GSPC", 3), ("QLD", "^NDX", 2), ("TQQQ", "^NDX", 3), ("1570.T", "^N225", 2)]
+    pairs = [("SSO", "^GSPC", 2), ("SPXL", "^GSPC", 3), ("UPRO", "^GSPC", 3), ("QLD", "^NDX", 2), ("TQQQ", "^NDX", 3), ("1570.T", "^N225", 2), ("1579.T", "^N225", 2)]
     irx = fetch("^IRX", refresh)
     print("ETF     L  期間                 日次相関  追跡誤差/年  ETF年率  合成年率  差(合成-ETF)  累積比(合成/ETF)")
     for etf, idxs, L in pairs:
@@ -221,7 +221,7 @@ def validate(refresh):
         ce = (1 + d["etf"]).prod() ** (1 / yrs) - 1; cs = (1 + syn).prod() ** (1 / yrs) - 1
         ratio = (1 + syn).prod() / (1 + d["etf"]).prod()
         print(f"{etf:7s} {L}  {d.index[0].date()}~{d.index[-1].date()}  {corr:6.4f}  {pct(te)}   {pct(ce)}  {pct(cs)}   {pct(cs-ce)}     {ratio:6.3f}")
-    print("  (^GSPC/^NDXの配当は定数近似、^N225は配当ゼロ。日本の短期金利は粗い年次テーブル)")
+    print("  (^GSPC/^NDXの配当は定数近似、^N225は配当1.5%/年と仮定。日本の短期金利は粗い年次テーブル)")
 
 
 def analyze_market(name, sym, refresh, start=None, jp=False, show_tax=False):
@@ -335,7 +335,7 @@ def main():
     validate(refresh)
     total = 0
     for name, sym, jp, tax in [("S&P500 (^GSPC)", "^GSPC", False, True), ("NASDAQ100 (^NDX)", "^NDX", False, False),
-                               ("日経225 (^N225、円建て、配当なし)", "^N225", True, True)]:
+                               ("日経225 (^N225、円建て、配当は1.5%/年と仮定)", "^N225", True, True)]:
         _, n = analyze_market(name, sym, refresh, jp=jp, show_tax=tax)
         total += n
     print(f"\n試した戦略数: 市場3 x {n}戦略 = {total}通り(SMA期間は200日のみ、Lは1/2/3、バンド1/2/3%、ボラ目標15%固定)。"

@@ -264,8 +264,9 @@ def part2(H):
     isg = np.array([i in gs for i in r.index])
     print(f"[参考・15分足60日] USDJPY 8:00→9:45: 五十日 n={isg.sum()} 平均 {r[isg].mean():.2f}bp / 通常日 n={(~isg).sum()} 平均 {r[~isg].mean():.2f}bp(標本小さく結論不可)")
     # 日足15年
-    dd = fetch("USDJPY=X", "1d", "max")
-    dd.index = dd.index.normalize()
+    dd = fetch("USDJPY=X", "1d", "16y")
+    dd.index = (dd.index + pd.Timedelta(hours=2)).normalize()   # 23:00UTC(英夏時間の0時)も当日扱い
+    dd = dd[dd.index.dayofweek < 5]; dd = dd[~dd.index.duplicated()]
     ret = dd.close.pct_change() * 1e4
     big = ret.abs() > 500
     print(f"日足 USDJPY {dd.index[0].date()}〜{dd.index[-1].date()}: ±5%超 {int(big.sum())}本を除外")
