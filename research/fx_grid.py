@@ -49,6 +49,9 @@ def build(sym, dfs, rt):
     """ペアごとの配列(高値, 安値, 終値, 対円換算, 基軸/決済通貨の金利)"""
     base, quote = sym[:3], sym[3:6]
     d = dfs[sym].copy()
+    bad = (d.c > d.h * 1.002) | (d.c < d.l * 0.998)          # Yahooの終値グリッチ(例: EURGBP 2022-10-09 +11%)は高安の中値に置換
+    d.loc[bad, "c"] = (d.h + d.l)[bad] / 2
+    d["h"] = np.maximum(d.h, d.c); d["l"] = np.minimum(d.l, d.c)
     q = pd.Series(1.0, index=d.index) if quote == "JPY" else dfs[Q2J[quote]].c.reindex(d.index).ffill()
     ridx = rt.reindex(rt.index.union(d.index)).ffill().reindex(d.index)
     rb, rq = ridx[AREA[base]].bfill(), ridx[AREA[quote]].bfill()
@@ -129,7 +132,7 @@ def sim(x, i0, i1, side, step_pct, nlines, cap, lev=5.0, lc=1.0):
         if eq_close <= 0: ruin = True; eq_close = 0.0; break
     days = (dt[last] - dt[i0]) / np.timedelta64(1, "D")
     ann = (eq_close / cap) ** (365.0 / max(days, 1)) - 1 if eq_close > 0 else -1.0
-    return dict(ret=eq_close / cap - 1, ann=ann, mdd=min(mdd, 1.0), lc=lc_n, ruin=int(ruin), half=int(minEq <= 0.5 * cap), wins=wins, losses=loss,
+    return dict(ret=eq_close / cap - 1, ann=ann, mdd=min(mdd, 1.0), lc=lc_n, ruin=int(ruin), half=int(minEq <= 0.5 * cap), lost80=int(minEq <= 0.2 * cap), wins=wins, losses=loss,
                 win_amt=win_amt, loss_amt=loss_amt, swap=swap_tot / cap, lot=lot, open=len(LU) + len(SU), blocked=blocked)
 
 
@@ -201,7 +204,7 @@ def main():
             for st in STEPS:
                 for n in NS:
                     for (a, b) in wins[s]:
-                        for cap, lev, lc in [(10000, 5.0, 1.0), (300000, 5.0, 1.0), (100000, 5.0, 0.5), (100000, 3.0, 1.0), (100000, 10.0, 1.0)]:
+                        for cap, lev, lc in [(10000, 5.0, 1.0), (300000, 5.0, 1.0), (100000, 5.0, 0.5), (100000, 3.0, 1.0), (100000, 10.0, 1.0), (10000, 2.0, 1.0), (100000, 2.0, 1.0), (100000, 1.0, 1.0)]:
                             jobs.append(("B", s, a, b, side, st, n, cap, lev, lc))
     for name, s, d0, d1 in REGIMES:   # C: 局面別
         a = int(X[s].index.searchsorted(pd.Timestamp(d0))); b = int(X[s].index.searchsorted(pd.Timestamp(d1)))
@@ -220,7 +223,7 @@ def main():
 def agg(g):
     tw = g.wins.sum(); tl = g.losses.sum()
     return pd.Series(dict(窓数=len(g), 年率中央=g.ann.median() * 100, 年率平均=g.ann.mean() * 100, 年率p10=g.ann.quantile(.1) * 100, 最大下落中央=g.mdd.median() * 100, 最大下落p90=g.mdd.quantile(.9) * 100,
-                          ロスカット回数平均=g.lc.mean(), ロスカット発生窓=(g.lc > 0).mean() * 100, 破産確率=g.ruin.mean() * 100, 半減以下=g.half.mean() * 100,
+                          ロスカット回数平均=g.lc.mean(), ロスカット発生窓=(g.lc > 0).mean() * 100, 破産確率=g.ruin.mean() * 100, 半減以下=g.half.mean() * 100, 八割喪失=g.lost80.mean() * 100,
                           勝率=tw / max(tw + tl, 1) * 100, 平均利益=g.win_amt.sum() / max(tw, 1), 平均損失=g.loss_amt.sum() / max(tl, 1), スワップ寄与=g.swap.mean() * 100))
 
 
@@ -239,7 +242,7 @@ def report(df, X):
     B = df[df.key == "B"]
     print("\n=== B. 感度(コア3ペア: USDJPY, AUDJPY, AUDNZD ×売買×27設定×3年窓) ===")
     allc = pd.concat([A[A.pair.isin(CORE)].drop(columns="has"), B])
-    print(G(allc, ["cap", "lev", "lcr"])[["年率中央", "年率平均", "年率p10", "最大下落中央", "ロスカット回数平均", "ロスカット発生窓", "破産確率", "半減以下", "勝率"]])
+    print(G(allc, ["cap", "lev", "lcr"])[["年率中央", "年率平均", "年率p10", "最大下落中央", "ロスカット回数平均", "ロスカット発生窓", "破産確率", "半減以下", "八割喪失", "勝率"]])
     cc = allc[(allc.lev == 5.0) & (allc.lcr == 1.0)]
     print("\n--- B: 元手別×ペア×売買(維持率100%, 5倍): 年率中央 / ロスカット回数平均 / 破産確率 ---")
     print(G(cc, ["pair", "side", "cap"])[["年率中央", "最大下落中央", "ロスカット回数平均", "破産確率"]].unstack("cap"))
