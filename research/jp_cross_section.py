@@ -84,6 +84,36 @@ def fetch(code):
     return out
 
 
+def fetch_splits(codes):
+    """分割履歴(Yahooの終値は分割調整済み → 当時の実際の株価に戻すために必要)。まとめて1ファイルにキャッシュ。"""
+    f = DATA / "splits.json"
+    cache = json.loads(f.read_text()) if f.exists() else {}
+    for code in codes:
+        if code in cache:
+            continue
+        url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{code}.T"
+               f"?interval=1mo&period1=0&period2={int(time.time())}&events=split")
+        try:
+            r = json.loads(http(url))["chart"]["result"][0]
+            sp = (r.get("events") or {}).get("splits", {})
+            cache[code] = [[v["date"], v["numerator"] / v["denominator"]] for v in sp.values()]
+        except Exception:  # noqa
+            continue
+        time.sleep(0.25)
+    f.write_text(json.dumps(cache))
+    return cache
+
+
+def raw_price(C, splits):
+    """調整後終値 → 当時の実際の終値(以後の分割比の積を掛ける)。"""
+    R = C.copy()
+    for code in C.columns:
+        for ts, ratio in splits.get(code, []):
+            d = pd.Timestamp(ts, unit="s").normalize()
+            R.loc[R.index < d, code] = R.loc[R.index < d, code] * ratio
+    return R
+
+
 def build_panels(uni):
     closes, vols, bad = {}, {}, []
     for code in list(uni["コード"]) + ["1348"]:
@@ -132,6 +162,10 @@ def main():
     topix = C["1348"] if "1348" in C else None
     C, V = C.drop(columns=["1348"], errors="ignore"), V.drop(columns=["1348"], errors="ignore")
     print(f"取得: {C.shape[1]}銘柄(失敗/短すぎ {len(bad)})  期間 {C.index[0].date()}〜{C.index[-1].date()}  {time.time()-t0:.0f}s")
+    splits = fetch_splits(list(C.columns))
+    RAW = raw_price(C, splits)
+    nsp = sum(len(v) for k, v in splits.items() if k in C.columns)
+    print(f"分割 {nsp}件(株価水準・呼値は分割前の実際の株価に戻して使う。調整後価格だと『将来分割する=上がる銘柄』が低位株に見えるルックアヘッドになる)")
     grp = uni.set_index("コード")["grp"].reindex(C.columns)
     print(grp.str.split("/").str[0].value_counts().to_dict())
 
@@ -163,7 +197,7 @@ def main():
         "低ボラ(60日)": -vol60,
         "宝くじ回避(MAX小)": -mx,
         "出来高急増(20日/過去平均)": surge,
-        "低位株(株価が安い)": -C,
+        "低位株(株価が安い)": -RAW,
         "小型(売買代金が小さい)": -avgTV,
     }
     sig_names = list(score)
@@ -180,11 +214,12 @@ def main():
     mret, meta = [], []
     Pv = P.values
     Cv = C.values
+    RAWv = RAW.values
     for k, a, b in months:
         i = pos[me[k]]
         ok = (traded.values[i] >= 40) & ~np.isnan(Pv[a]) & ~np.isnan(Pv[b]) & ~np.isnan(Cv[i])
         mret.append(Pv[b] / Pv[a] - 1)
-        meta.append((me[k], ok, avgTV.values[i], Cv[i]))
+        meta.append((me[k], ok, avgTV.values[i], RAWv[i]))
     dates = [m[0] for m in meta]
     M = len(dates)
     print(f"月数 {M}  ({dates[0].date()}〜{dates[-1].date()})")
@@ -274,6 +309,10 @@ def main():
         for sg in sig_names:
             o = run(score[sg], liq)
             allres[(u, sg)] = (o, summarise(o))
+    # 診断(検定数に含めない): 分割調整後の価格で低位株を作ると、将来分割した=上がった銘柄が混ざる(ルックアヘッド)
+    dg = summarise(run(-C, False))
+    print(f"[診断] 低位株を『分割調整後の価格』で作った場合(誤り): long超過 年{dg['long超過']['gross']:+.1f}% t={dg['long超過']['t']:.2f} / 正しい当時の株価: 年{allres[('全銘柄','低位株(株価が安い)')][1]['long超過']['gross']:+.1f}%")
+    ntests[0] -= 2
     uni_all = allres[("全銘柄", sig_names[0])][0]["uni"]
     uni_liq = allres[("流動性5千万円以上", sig_names[0])][0]["uni"]
     print("\n=== ベンチマーク(価格のみ、年率%、算術) ===")
