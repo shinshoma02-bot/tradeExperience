@@ -1,6 +1,7 @@
 import asyncio
 import hmac
 import threading
+from datetime import date
 from collections import defaultdict
 from contextlib import asynccontextmanager
 
@@ -56,6 +57,25 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
             )
             return {"status": "filled", "fill": fill.model_dump()}
 
+    def restore_from_journal() -> int:
+        """再起動で消えた模擬ポジションと本日のリスク集計を、記録(約定の履歴)を再生して復元する。"""
+        today = date.today().isoformat()
+        n = 0
+        for row in journal.read():
+            if row.get("kind") != "fill":
+                continue
+            try:
+                sig = Signal(secret="", **row["signal"])
+                fill = brokers[sig.market].execute(sig)
+            except Exception:
+                continue  # 壊れた行は飛ばす
+            if fill and row["ts"].startswith(today):
+                risk.record(fill.realized_pnl, fill.quote)
+            n += 1
+        return n
+
+    restored = restore_from_journal()
+
     def get_position(market: str, strategy: str, symbol: str) -> float:
         with lock:
             pos = brokers[market].positions().get(f"{strategy}:{symbol}")
@@ -96,6 +116,7 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
             "secret_configured": bool(settings.webhook_secret),
             "runner": bool(runner),
             "notify": notifier.enabled,
+            "restored_fills": restored,
         }
 
     @app.post("/webhook")

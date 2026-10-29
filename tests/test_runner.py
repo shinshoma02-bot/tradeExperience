@@ -158,3 +158,20 @@ def test_unrealized_pnl_in_positions_and_report(tmp_path):
     assert abs(p["unrealized_pnl"] - (121 - 110) * p["qty"]) < 1e-9
     rep = client.get("/report").json()["crypto/donchian_breakout"]
     assert abs(rep["total_pnl_usd"] - rep["unrealized_pnl_usd"]) < 1e-9 and rep["realized_pnl_usd"] == 0
+
+
+def test_positions_restored_from_journal_after_restart(tmp_path):
+    s = Settings(webhook_secret="x", journal_path=str(tmp_path / "j.jsonl"),
+                 enabled_markets=frozenset({"futures", "crypto"}), max_notional_per_order=1000)
+    c1 = TestClient(create_app(s))
+    sig = dict(secret="x", market="futures", strategy="donchian_breakout", symbol="ES=F",
+               action="sell", price=7744.75, qty=0.0129, quote="USD")
+    assert c1.post("/webhook", json=sig).json()["status"] == "filled"
+    # 別のアプリ(=再起動後のサーバー)が同じ記録から復元する
+    c2 = TestClient(create_app(s))
+    p = c2.get("/positions").json()["futures"]["donchian_breakout:ES=F"]
+    assert p["qty"] == -0.0129 and p["avg_price"] == 7744.75 and p["side"] == "short"
+    assert c2.get("/health").json()["restored_fills"] == 1
+    # 復元後の決済で正しく損益が出る(価格が下がった=売りの利益)
+    r = c2.post("/webhook", json={**sig, "action": "close", "price": 7700.0, "qty": 0}).json()
+    assert r["fill"]["realized_pnl"] > 0
