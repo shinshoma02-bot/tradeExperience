@@ -18,6 +18,7 @@ from app.risk import RiskError, RiskManager
 from app.runner.backtest import run_all
 from app.runner.data import fetch_candles, parse_instruments
 from app.runner.runner import StrategyRunner
+from app.runner.strategies import STRATEGIES
 
 
 def create_app(settings: Settings | None = None, runner_fetch=None, notifier: Notifier | None = None,
@@ -84,15 +85,17 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
             pos = brokers[market].positions().get(f"{strategy}:{symbol}")
         return pos["qty"] if pos else 0.0
 
+    instruments = parse_instruments(settings.runner_instruments)
+    n_bots = len(instruments) * len(STRATEGIES)
     runner = None
     if settings.runner_enabled:
         kw = {"fetch": runner_fetch} if runner_fetch else {}
         runner = StrategyRunner(
             handle=process,
             get_position=get_position,
-            instruments=parse_instruments(settings.runner_instruments),
+            instruments=instruments,
             interval_min=settings.runner_interval_min,
-            order_notional_usd=settings.runner_order_notional,
+            order_notional_usd=settings.order_notional_usd(n_bots),
             to_quote=lambda usd, quote: usd * settings.jpy_per_usd if quote == "JPY" else usd,
             alert=lambda m: notifier.send("ランナー異常", m, "urgent", dedupe_key="runner-fail"),
             **kw,
@@ -103,7 +106,7 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
         task = None
         notifier.send("サーバー起動", f"tradeExperience 起動(mode={settings.trading_mode}, runner={bool(runner)})", "low")
         if runner and runner_fetch is None:  # テスト時は自動ループを動かさない
-            task = asyncio.create_task(runner.loop(every_sec=60))
+            task = asyncio.create_task(runner.loop(every_sec=60 if settings.runner_interval_min < 240 else 600))
         yield
         if task:
             task.cancel()
@@ -131,7 +134,7 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
             raise HTTPException(status_code=401, detail="bad secret")
         return process(signal)
 
-    quotes = {(i.market, i.symbol): i.quote for i in parse_instruments(settings.runner_instruments)}
+    quotes = {(i.market, i.symbol): i.quote for i in instruments}
 
     def with_unrealized() -> dict[str, dict]:
         """ポジションに含み損益を付ける。評価価格は直近の確定足の終値(最大で足1本分=約1時間遅れ)。"""
@@ -176,24 +179,46 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
             s["total_pnl_usd"] = round(s["realized_pnl_usd"] + s.get("unrealized_pnl_usd", 0.0), 8)
         return stats
 
+    @app.get("/summary")
+    def summary():
+        """元手に対して今いくらか(確定+含み損益)。日本円で表示。"""
+        rep = report()
+        pnl_usd = sum(v["total_pnl_usd"] for v in rep.values())
+        pnl_jpy = pnl_usd * settings.jpy_per_usd
+        by_market: dict[str, float] = {}
+        for k, v in rep.items():
+            m = k.split("/")[0]
+            by_market[m] = round(by_market.get(m, 0.0) + v["total_pnl_usd"] * settings.jpy_per_usd, 1)
+        return {
+            "capital_jpy": settings.capital_jpy,
+            "equity_jpy": round(settings.capital_jpy + pnl_jpy, 1),
+            "pnl_jpy": round(pnl_jpy, 1),
+            "return_pct": round(pnl_jpy / settings.capital_jpy * 100, 2) if settings.capital_jpy else None,
+            "pnl_jpy_by_market": by_market,
+            "bots": n_bots,
+            "per_bot_jpy": round(settings.capital_jpy / max(n_bots, 1), 1),
+            "note": "模擬。手数料・スリッページなし。円換算は固定レート(JPY_PER_USD)",
+        }
+
     bt_cache: dict[tuple, tuple[float, dict]] = {}
 
     @app.get("/backtest")
-    def backtest(days: int = 180, fee_bps: float = 5.0):
+    def backtest(days: int = 3650, fee_bps: float | None = None):
         """過去の足で戦略を試した結果。公開データを取りに行くので重い(結果は1時間キャッシュ)。"""
-        days, fee_bps = max(7, min(days, 700)), max(0.0, min(fee_bps, 100.0))
+        days = max(7, min(days, 3650))
+        fee_bps = None if fee_bps is None else max(0.0, min(fee_bps, 100.0))
         key = (days, fee_bps)
         hit = bt_cache.get(key)
         if hit and time.time() - hit[0] < 3600:
             return hit[1]
         fetch = backtest_fetch or (lambda inst: fetch_candles(inst, settings.runner_interval_min, days=days))
         out = run_all(
-            parse_instruments(settings.runner_instruments), fetch,
-            order_notional_usd=settings.runner_order_notional, fee_bps=fee_bps, to_usd=settings.to_usd,
+            instruments, fetch,
+            order_notional_usd=settings.order_notional_usd(n_bots), fee_bps=fee_bps, to_usd=settings.to_usd,
             to_quote=lambda usd, q: usd * settings.jpy_per_usd if q == "JPY" else usd,
         )
-        out["note"] = ("損益は1注文あたりの想定金額(USD)での合計。手数料は片道fee_bps。スリッページなし。"
-                       "期間は銘柄ごとに異なる(暗号資産は直近約30日)。過去の結果は将来を保証しない")
+        out["note"] = (f"元手{settings.capital_jpy:.0f}円を銘柄×戦略に均等配分した想定。手数料は片道(既定: 暗号資産0.2%/FX0.02%/株0.1%)、"
+                       "スリッページなし。期間は銘柄ごとに異なる(暗号資産は直近約2年)。過去の結果は将来を保証しない")
         out["days"], out["fee_bps"] = days, fee_bps
         bt_cache[key] = (time.time(), out)
         return out

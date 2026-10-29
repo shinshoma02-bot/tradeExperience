@@ -1,9 +1,15 @@
-"""Pine版(pine/*.pine)と同じ3戦略。確定足だけを見て、最後の足で出たシグナルを返す。
+"""日足向けの3戦略(pine/*.pine は旧1時間足版のまま)。確定足だけを見て、最後の足で出たシグナルを返す。
 
-返り値: "buy" / "sell" / "close" / None
- - buy/sell は反対ポジションを持っていれば呼び出し側が先に決済する(Pineのstrategy.entryと同じ)
+返り値: "buy" / "sell" / "close" / None。保有(position)も見て判断する。
+ - 現物の市場(暗号資産・株)では、売りシグナルは「持っていれば決済」だけになる(plan_orders 側で処理)
+ - パラメータは過去10年の日足で検証した一般的な値(SMA 50/100、タートル 55/20、RSI 14/30)。
+   検証結果の中で一番良く見えた値を選ぶと過去に合わせただけになるので、あえて定番の値にしている
 """
 from app.runner.data import Candle
+
+SMA_FAST, SMA_SLOW = 50, 100
+DONCH_ENTRY, DONCH_EXIT = 55, 20
+RSI_N, RSI_LO, RSI_EXIT = 14, 30, 50
 
 
 def sma(vals: list[float], n: int, end: int) -> float:
@@ -26,44 +32,47 @@ def rsi_series(closes: list[float], n: int) -> list[float | None]:
     return out
 
 
-def sma_cross(c: list[Candle], position: float, fast: int = 20, slow: int = 50) -> str | None:
+def sma_cross(c: list[Candle], position: float) -> str | None:
+    """短期線が長期線の上なら買い、下なら売り(トレンドに乗り、反転で降りる)。"""
     closes = [x.close for x in c]
-    if len(closes) < slow + 1:
+    if len(closes) < SMA_SLOW:
         return None
     i = len(closes) - 1
-    f0, s0 = sma(closes, fast, i - 1), sma(closes, slow, i - 1)
-    f1, s1 = sma(closes, fast, i), sma(closes, slow, i)
-    if f0 <= s0 and f1 > s1:
-        return "buy"
-    if f0 >= s0 and f1 < s1:
-        return "sell"
+    fast, slow = sma(closes, SMA_FAST, i), sma(closes, SMA_SLOW, i)
+    if fast > slow:
+        return "buy" if position <= 0 else None
+    if fast < slow:
+        return "sell" if position >= 0 else None
     return None
 
 
-def rsi_reversion(c: list[Candle], position: float, n: int = 14, lo: int = 30, hi: int = 70) -> str | None:
-    r = rsi_series([x.close for x in c], n)
-    if len(r) < 2 or r[-1] is None or r[-2] is None:
+def donchian_breakout(c: list[Candle], position: float) -> str | None:
+    """55日高値を抜けたら買い、20日安値を割ったら降りる(タートル流)。下抜けは売りから入れる市場だけ売り。"""
+    if len(c) < DONCH_ENTRY + 1:
         return None
-    prev, cur = r[-2], r[-1]
-    if prev <= lo < cur:
-        return "buy"
-    if prev >= hi > cur:
-        return "sell"
-    if position > 0 and prev <= 50 < cur:
+    close = c[-1].close
+    entry, exit_ = c[-DONCH_ENTRY - 1 : -1], c[-DONCH_EXIT - 1 : -1]
+    if position == 0:
+        if close > max(x.high for x in entry):
+            return "buy"
+        if close < min(x.low for x in entry):
+            return "sell"
+    elif position > 0 and close < min(x.low for x in exit_):
         return "close"
-    if position < 0 and prev >= 50 > cur:
+    elif position < 0 and close > max(x.high for x in exit_):
         return "close"
     return None
 
 
-def donchian_breakout(c: list[Candle], position: float, n: int = 20) -> str | None:
-    if len(c) < n + 1:
+def rsi_reversion(c: list[Candle], position: float) -> str | None:
+    """売られすぎ(RSI<30)で買って、中立(RSI>50)まで戻したら決済する逆張り。買いのみ。"""
+    r = rsi_series([x.close for x in c], RSI_N)[-1]
+    if r is None:
         return None
-    window = c[-n - 1 : -1]  # 直前n本(最新足は含めない)
-    if c[-1].close > max(x.high for x in window):
+    if position == 0 and r < RSI_LO:
         return "buy"
-    if c[-1].close < min(x.low for x in window):
-        return "sell"
+    if position > 0 and r > RSI_EXIT:
+        return "close"
     return None
 
 

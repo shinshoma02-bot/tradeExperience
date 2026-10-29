@@ -56,7 +56,10 @@ def fetch_kraken(symbol: str, interval_min: int) -> list[Candle]:
 
 def fetch_yahoo(symbol: str, interval_min: int, days: int = 30) -> list[Candle]:
     """Yahoo Finance(非公式・キー不要)。FX は USDJPY=X、日本株は 7203.T、先物は ES=F の形式。"""
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval={interval_min}m&range={days}d"
+    interval = "1d" if interval_min >= 1440 else f"{interval_min}m"
+    if interval == "1d":
+        days = max(days, 1000)  # 日足は判定に100本以上要るので長めに取る
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval={interval}&range={days}d"
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=15) as r:
         body = json.load(r)

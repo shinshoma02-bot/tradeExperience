@@ -17,17 +17,24 @@ class Settings:
     enabled_markets: frozenset = field(default_factory=frozenset)
     journal_path: str = "data/journal.jsonl"
     runner_enabled: bool = False
+    # 1万円で現実に分散できる4つ(先物は最小単位が大きすぎるので外した。日本株は1株が配分額を超えがちなので外した)
     runner_instruments: str = (
-        "crypto:kraken:XBTUSD,crypto:kraken:ETHUSD,"
-        "fx:yahoo:USDJPY=X:JPY,fx:yahoo:EURUSD=X,"
-        "us_stock:yahoo:AAPL,us_stock:yahoo:NVDA,"
-        "jp_stock:yahoo:7203.T:JPY,futures:yahoo:ES=F"
+        "crypto:kraken:XBTUSD,crypto:kraken:ETHUSD,fx:yahoo:USDJPY=X:JPY,us_stock:yahoo:SPY"
     )
-    runner_interval_min: int = 60
-    runner_order_notional: float = 100.0
+    runner_interval_min: int = 1440  # 日足
+    capital_jpy: float = 10000.0     # 模擬の元手。銘柄×戦略に均等に配分する
+    runner_order_notional: float = 0.0  # 0なら元手から自動計算(1ボットあたりの配分額USD)
     jpy_per_usd: float = 150.0  # 円建て銘柄を米ドルに直す概算レート(模擬用)
     ntfy_topic: str = ""
     ntfy_server: str = "https://ntfy.sh"
+
+    @property
+    def capital_usd(self) -> float:
+        return self.capital_jpy / self.jpy_per_usd
+
+    def order_notional_usd(self, n_bots: int) -> float:
+        """1ボット(銘柄×戦略)あたりの配分額(USD)。明示指定があればそれを使う。"""
+        return self.runner_order_notional or (self.capital_usd / max(n_bots, 1))
 
     def to_usd(self, amount: float, quote: str) -> float:
         return amount / self.jpy_per_usd if quote == "JPY" else amount
@@ -35,23 +42,26 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         env = os.environ.get
+        capital_jpy = float(env("CAPITAL_JPY", "10000"))
+        capital_usd = capital_jpy / float(env("JPY_PER_USD", "150"))
         return cls(
             webhook_secret=env("WEBHOOK_SECRET", ""),
             trading_mode=env("TRADING_MODE", "paper"),
-            max_notional_per_order=float(env("MAX_NOTIONAL_PER_ORDER", "1000")),
+            max_notional_per_order=float(env("MAX_NOTIONAL_PER_ORDER", str(capital_usd))),
             max_orders_per_day=int(env("MAX_ORDERS_PER_DAY", "20")),
-            max_daily_loss=float(env("MAX_DAILY_LOSS", "200")),
+            max_daily_loss=float(env("MAX_DAILY_LOSS", str(round(capital_usd * 0.1, 4)))),
             kill_switch=_bool(env("KILL_SWITCH", "false")),
             enabled_markets=frozenset(
                 m.strip()
-                for m in env("ENABLED_MARKETS", "crypto,fx,us_stock,jp_stock,futures").split(",")
+                for m in env("ENABLED_MARKETS", "crypto,fx,us_stock,jp_stock").split(",")
                 if m.strip()
             ),
             journal_path=env("JOURNAL_PATH", "data/journal.jsonl"),
             runner_enabled=_bool(env("RUNNER_ENABLED", "false")),
             runner_instruments=env("RUNNER_INSTRUMENTS", cls.runner_instruments),
-            runner_interval_min=int(env("RUNNER_INTERVAL_MIN", "60")),
-            runner_order_notional=float(env("RUNNER_ORDER_NOTIONAL", "100")),
+            runner_interval_min=int(env("RUNNER_INTERVAL_MIN", "1440")),
+            capital_jpy=capital_jpy,
+            runner_order_notional=float(env("RUNNER_ORDER_NOTIONAL", "0")),
             jpy_per_usd=float(env("JPY_PER_USD", "150")),
             ntfy_topic=env("NTFY_TOPIC", ""),
             ntfy_server=env("NTFY_SERVER", "https://ntfy.sh"),

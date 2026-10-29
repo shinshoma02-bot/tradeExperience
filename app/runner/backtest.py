@@ -10,10 +10,12 @@ from typing import Callable
 from app.brokers.paper import PaperBroker
 from app.models import Signal
 from app.runner.data import Candle, Instrument
-from app.runner.runner import plan_orders
+from app.runner.runner import order_qty, plan_orders
 from app.runner.strategies import STRATEGIES
 
-WARMUP = 60    # 戦略が判定に必要な最低本数
+# 片道の手数料+スプレッドの想定(bps、1bps=0.01%)。実際の業者・取引所で変わるので目安
+DEFAULT_FEE_BPS = {"crypto": 20.0, "fx": 2.0, "us_stock": 10.0, "jp_stock": 10.0, "futures": 5.0}
+WARMUP = 100   # 戦略が判定に必要な最低本数
 WINDOW = 300   # 判定に渡す直近の本数(ランナーが取る本数と大きくは変わらない)
 
 
@@ -35,13 +37,14 @@ def run_backtest(
     candles: list[Candle],
     strategy: str,
     order_notional_usd: float = 100.0,
-    fee_bps: float = 5.0,
+    fee_bps: float | None = None,
     to_usd: Callable[[float, str], float] = lambda x, q: x,
     to_quote: Callable[[float, str], float] = lambda x, q: x,
 ) -> Result | None:
     if len(candles) <= WARMUP:
         return None
     fn = STRATEGIES[strategy]
+    fee_bps = DEFAULT_FEE_BPS.get(inst.market, 10.0) if fee_bps is None else fee_bps
     broker = PaperBroker()
     key = f"{strategy}:{inst.symbol}"
     realized_usd = fees_usd = 0.0
@@ -56,7 +59,9 @@ def run_backtest(
         if not action:
             continue
         for o in plan_orders(inst.market, action, pos):
-            qty = 0.0 if o == "close" else to_quote(order_notional_usd, inst.quote) / price
+            qty = 0.0 if o == "close" else order_qty(inst.market, to_quote(order_notional_usd, inst.quote), price)
+            if o != "close" and qty <= 0:
+                continue  # 配分額が小さすぎて買えない
             fill = broker.execute(Signal(secret="", market=inst.market, strategy=strategy,
                                          symbol=inst.symbol, action=o, price=price, qty=qty, quote=inst.quote))
             if fill is None:
@@ -101,4 +106,8 @@ def run_all(instruments: list[Instrument], fetch: Callable[[Instrument], list[Ca
         b["trades"] += r["trades"]
         b["runs"] += 1
     results.sort(key=lambda r: r["pnl_usd"], reverse=True)
-    return {"results": results, "by_strategy": by_strategy, "errors": errors}
+    total = round(sum(r["pnl_usd"] for r in results), 4)
+    capital = kw.get("order_notional_usd", 100.0) * len(results)  # 全ボットに配分した資金の合計
+    portfolio = {"pnl_usd": total, "capital_usd": round(capital, 4),
+                 "return_pct": round(total / capital * 100, 2) if capital else None}
+    return {"results": results, "by_strategy": by_strategy, "portfolio": portfolio, "errors": errors}

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import math
 from typing import Callable
 
 from app.models import Signal
@@ -8,8 +9,17 @@ from app.runner.strategies import STRATEGIES
 
 log = logging.getLogger("runner")
 
-# 現物株は空売りしない(売りシグナルは「持っていれば決済」だけにする)
-NO_SHORT_MARKETS = {"us_stock", "jp_stock"}
+# 現物(暗号資産・株)は空売りしない(売りシグナルは「持っていれば決済」だけにする)。売りから入れるのはFXと先物だけ
+NO_SHORT_MARKETS = {"crypto", "us_stock", "jp_stock"}
+
+
+def order_qty(market: str, notional_quote: float, price: float) -> float:
+    """配分額で買える数量。日本株は1株単位(端数は切り捨て)、それ以外は小数OK。買えなければ0。
+
+    実取引では取引所・証券会社ごとに最小注文額や単位があるので、実発注の前に要確認。
+    """
+    qty = notional_quote / price
+    return float(math.floor(qty)) if market == "jp_stock" else qty
 
 
 def plan_orders(market: str, action: str, pos: float) -> list[str]:
@@ -26,7 +36,7 @@ def plan_orders(market: str, action: str, pos: float) -> list[str]:
     if (action == "buy" and pos > 0) or (action == "sell" and pos < 0):
         return out  # 同方向を既に持っている
     if action == "sell" and market in NO_SHORT_MARKETS:
-        return out  # 株は新規の売り(空売り)をしない
+        return out  # 現物は新規の売り(空売り)をしない
     out.append(action)
     return out
 
@@ -97,8 +107,12 @@ class StrategyRunner:
             if o == "close":
                 out.append(self.handle(sig("close")))
             else:
-                qty = self.to_quote(self.order_notional_usd, inst.quote) / price
-                out.append(self.handle(sig(o, qty)))
+                qty = order_qty(inst.market, self.to_quote(self.order_notional_usd, inst.quote), price)
+                if qty <= 0:
+                    out.append({"status": "skipped", "reason": f"{inst.symbol}: 配分額では1単位も買えない"})
+                    log.info("skipped %s: allocation too small", inst.symbol)
+                else:
+                    out.append(self.handle(sig(o, qty)))
         return out
 
     async def loop(self, every_sec: int) -> None:
