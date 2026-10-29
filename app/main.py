@@ -15,7 +15,8 @@ from app.config import Settings
 from app.journal import Journal
 from app.models import Signal
 from app.forward.ai_judge import TARGETS as AI_TARGETS
-from app.forward.ai_judge import AIForwardLog, evaluate as ai_evaluate
+from app.forward.ai_judge import AIForwardLog, recent_returns
+from app.forward.ai_judge import evaluate as ai_evaluate
 from app.notify import Notifier
 from app.risk import RiskError, RiskManager
 from app.runner.backtest import DEFAULT_FEE_BPS, run_all
@@ -108,6 +109,15 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
     ai_log = AIForwardLog(ai_path)
     ai_on = settings.ai_log_enabled and bool(settings.anthropic_api_key)
 
+    def ai_candles_for_targets():
+        if ai_candles:
+            return ai_candles()
+        return {t: fetch_candles(Instrument("us_stock" if t == "SPY" else "jp_stock" if t.endswith(".T") else "fx", "yahoo", t), 1440, days=400)
+                for t in AI_TARGETS}
+
+    def ai_returns():
+        return recent_returns(ai_candles_for_targets())
+
     async def ai_loop():
         """毎日 ai_log_hour_utc 以降に1回だけ、見出しからの予測を追記する(売買には使わない)。"""
         while True:
@@ -119,9 +129,10 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
                         kw["llm"] = ai_llm
                     if ai_headlines:
                         kw["fetch"] = ai_headlines
-                    row = await asyncio.to_thread(ai_log.run_once, settings.anthropic_api_key, settings.ai_model, now, **kw)
-                    if row:
-                        journal.write("ai_forecast", forecast=row["forecast"])
+                    kw["returns"] = ai_returns
+                    rows = await asyncio.to_thread(ai_log.run_once, settings.anthropic_api_key, settings.ai_model, now, **kw)
+                    for row in rows:
+                        journal.write("ai_forecast", variant=row["variant"])
             except Exception:
                 pass
             await asyncio.sleep(1800)
@@ -281,8 +292,27 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
     def ai_forecasts(limit: int = 10):
         """記録されたAIの予測(新しい順)。"""
         rows = ai_log.rows()[-max(1, min(limit, 100)):][::-1]
-        return [{"ts": r["ts"], "model": r["model"], "prompt_version": r["prompt_version"],
+        return [{"ts": r["ts"], "variant": r.get("variant", "news"), "model": r["model"], "prompt_version": r["prompt_version"],
                  "n_headlines": len(r["headlines"]), "forecast": r["forecast"]} for r in rows]
+
+    @app.post("/ai/run")
+    def ai_run(body: dict):
+        """動作確認用: 時刻に関係なく今すぐ1回だけ予測を記録する(今日分が既にあれば何もしない)。合言葉が必要。"""
+        if not settings.webhook_secret or not hmac.compare_digest(str(body.get("secret", "")), settings.webhook_secret):
+            raise HTTPException(status_code=401, detail="bad secret")
+        if not ai_on:
+            raise HTTPException(status_code=503, detail="AI_LOG_ENABLED と ANTHROPIC_API_KEY が設定されていない")
+        kw = {"returns": ai_returns}
+        if ai_llm:
+            kw["llm"] = ai_llm
+        if ai_headlines:
+            kw["fetch"] = ai_headlines
+        try:
+            rows = ai_log.run_once(settings.anthropic_api_key, settings.ai_model, **kw)
+        except Exception as e:  # APIキーなどの秘密を返さないよう、種類と状態だけ返す
+            code = getattr(e, "code", None)
+            raise HTTPException(status_code=502, detail=f"AI呼び出しに失敗: {type(e).__name__} {code or ''}".strip())
+        return {"recorded": [r["variant"] for r in rows], "note": "空なら今日分は記録済み、または見出しが少ない"}
 
     @app.get("/ai/eval")
     def ai_eval():
@@ -291,9 +321,7 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
         if not rows:
             return {"forecasts": 0, "note": "まだ記録がない"}
         try:
-            candles = ai_candles() if ai_candles else {
-                t: fetch_candles(Instrument("us_stock" if t == "SPY" else "jp_stock" if t.endswith(".T") else "fx", "yahoo", t), 1440, days=400)
-                for t in AI_TARGETS}
+            candles = ai_candles_for_targets()
         except Exception as e:
             return {"forecasts": len(rows), "error": f"価格取得に失敗: {e}"}
         return {"forecasts": len(rows), "since": rows[0]["ts"], "results": ai_evaluate(rows, candles)}
