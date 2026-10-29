@@ -30,7 +30,7 @@ def fetch(sym):
     return d
 
 
-def load(sym, use_adj=True):
+def load(sym, use_adj=True, clean=True):
     d = fetch(sym)
     df = pd.DataFrame({k: d[k] for k in "ohlca"}, index=pd.to_datetime(d["t"], unit="s").normalize())
     df = df[~df.index.duplicated(keep="last")].dropna()
@@ -38,7 +38,7 @@ def load(sym, use_adj=True):
     f = (df.a / df.c) if use_adj else 1.0
     out = pd.DataFrame({"o": df.o * f, "h": df.h * f, "l": df.l * f, "c": df.c * f}) if use_adj else df[list("ohlc")].copy()
     r = out.c.pct_change()
-    bad = r.abs() > 0.15
+    bad = (r.abs() > 0.15) if clean else (r.abs() < 0)  # VIX/金利は日次15%超の動きが正常なので除外しない
     if bad.any():
         print(f"  [{sym}] 日次±15%超 {int(bad.sum())}件を除外: {[str(x.date()) for x in out.index[bad]][:6]}")
         out = out[~bad]
@@ -165,8 +165,8 @@ def evaluate(name, df, cash, S, bh_ret, mid, split2010=True):
 
 def main():
     pd.set_option("display.width", 250); pd.set_option("display.max_columns", 30)
-    vix = load("^VIX", use_adj=False).c
-    irx = load("^IRX", use_adj=False).c / 100 / 252
+    vix = load("^VIX", use_adj=False, clean=False).c
+    irx = load("^IRX", use_adj=False, clean=False).c / 100 / 252
     assets = [("SPY", "SPY", True, True), ("QQQ", "QQQ", True, True), ("1348.T", "MAXIS TOPIX 1348.T", True, False),
               ("^N225", "日経平均(指数・配当なし)", False, False)]
     all_res = {}
