@@ -23,7 +23,7 @@ pytest                          # テスト
 | `POST /webhook` | シグナル受信 |
 | `GET /positions` | 現在の模擬ポジション(含み損益つき) |
 | `GET /report` | `マーケット/戦略` ごとの確定損益・含み損益・合計(USD換算) |
-| `GET /summary` | 元手(円)に対する今の損益・合計資産(円) |
+| `GET /summary` | 元手(円)に対する今の損益・合計資産(円)。想定手数料込み、SPY持ちっぱなしとの比較、実資金に進む合格ライン(`real_money_gates`)つき |
 | `GET /backtest` | 過去の日足で全銘柄×3戦略を試した結果(`?days=3650`)。重いので1時間キャッシュ |
 | `GET /health` | 死活確認 |
 
@@ -67,9 +67,9 @@ pytest                          # テスト
 
 | マーケット | データ源 | 既定の銘柄 |
 |---|---|---|
-| crypto | Kraken(公開API) | XBTUSD, ETHUSD |
-| fx | Yahoo Finance(非公式) | USDJPY |
+| fx | Yahoo Finance(非公式) | USDJPY, EURJPY, AUDJPY |
 | us_stock | Yahoo Finance | SPY(S&P500連動ETF) |
+| crypto | Kraken(公開API) | 既定では外した(変動が大きすぎるため)。足せる |
 
 先物は最小単位が大きく1万円では成り立たないので既定から外した。日本株は1株が配分額を超えがち
 (トヨタ約3,000円 vs 1ボット約833円)で外したが、`RUNNER_INSTRUMENTS` で足せる。書式は `.env.example`。

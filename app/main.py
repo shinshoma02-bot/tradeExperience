@@ -2,7 +2,7 @@ import asyncio
 import hmac
 import threading
 import time
-from datetime import date
+from datetime import date, datetime, timezone
 from collections import defaultdict
 from contextlib import asynccontextmanager
 
@@ -15,14 +15,14 @@ from app.journal import Journal
 from app.models import Signal
 from app.notify import Notifier
 from app.risk import RiskError, RiskManager
-from app.runner.backtest import run_all
-from app.runner.data import fetch_candles, parse_instruments
+from app.runner.backtest import DEFAULT_FEE_BPS, run_all
+from app.runner.data import Instrument, fetch_candles, parse_instruments
 from app.runner.runner import StrategyRunner
 from app.runner.strategies import STRATEGIES
 
 
 def create_app(settings: Settings | None = None, runner_fetch=None, notifier: Notifier | None = None,
-               backtest_fetch=None) -> FastAPI:
+               backtest_fetch=None, benchmark_fetch=None) -> FastAPI:
     settings = settings or Settings.from_env()
     if settings.trading_mode != "paper":
         # 実ブローカー実装までは安全のため paper 以外では起動させない
@@ -159,45 +159,93 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
     def positions():
         return with_unrealized()
 
+    def fee_usd(f: dict) -> float:
+        """約定1回あたりの手数料+スプレッドの想定(バックテストと同じ率)。記録には持たず、集計時に計算する。"""
+        bps = DEFAULT_FEE_BPS.get(f["market"], 10.0)
+        return settings.to_usd(f["qty"] * f["price"], f.get("quote", "USD")) * bps / 1e4
+
     @app.get("/report")
     def report():
-        """マーケット×戦略ごとの成績(確定損益はUSD換算・約定回数)。どれが勝てるか比べる用。"""
+        """マーケット×戦略ごとの成績(USD換算)。total_pnl_usd は確定+含み損益から想定手数料を引いた値。"""
         stats: dict[str, dict] = {}
         for row in journal.read():
             if row["kind"] != "fill":
                 continue
             f = row["fill"]
-            s = stats.setdefault(f"{f['market']}/{f['strategy']}", {"fills": 0, "realized_pnl_usd": 0.0})
+            s = stats.setdefault(f"{f['market']}/{f['strategy']}", {"fills": 0, "realized_pnl_usd": 0.0, "fees_usd": 0.0})
             s["fills"] += 1
-            usd = settings.to_usd(f["realized_pnl"], f.get("quote", "USD"))
-            s["realized_pnl_usd"] = round(s["realized_pnl_usd"] + usd, 8)
+            quote = f.get("quote", "USD")
+            s["realized_pnl_usd"] = round(s["realized_pnl_usd"] + settings.to_usd(f["realized_pnl"], quote), 8)
+            s["fees_usd"] = round(s["fees_usd"] + fee_usd(f), 8)
         for market, poss in with_unrealized().items():
             for p in poss.values():
-                s = stats.setdefault(f"{market}/{p['strategy']}", {"fills": 0, "realized_pnl_usd": 0.0})
+                s = stats.setdefault(f"{market}/{p['strategy']}", {"fills": 0, "realized_pnl_usd": 0.0, "fees_usd": 0.0})
                 s["unrealized_pnl_usd"] = round(s.get("unrealized_pnl_usd", 0.0) + p.get("unrealized_pnl_usd", 0.0), 8)
         for s in stats.values():
-            s["total_pnl_usd"] = round(s["realized_pnl_usd"] + s.get("unrealized_pnl_usd", 0.0), 8)
+            s["total_pnl_usd"] = round(s["realized_pnl_usd"] + s.get("unrealized_pnl_usd", 0.0) - s["fees_usd"], 8)
         return stats
+
+    bench_cache: dict[str, tuple[float, float | None]] = {}
+
+    def benchmark_return_pct(since: str) -> float | None:
+        """同じ期間にSPYを持ちっぱなしにしていた場合の値動き(%)。取れなければNone。"""
+        hit = bench_cache.get(since)
+        if hit and time.time() - hit[0] < 3600:
+            return hit[1]
+        val = None
+        try:
+            fetch = benchmark_fetch or (lambda: fetch_candles(Instrument("us_stock", "yahoo", "SPY"), 1440, days=400))
+            candles = fetch()
+            t0 = datetime.fromisoformat(since).timestamp()
+            before = [c for c in candles if c.ts <= t0]
+            base = before[-1] if before else (candles[0] if candles else None)  # 開始時点を含む足の終値を基準にする
+            if base and candles:
+                val = round((candles[-1].close / base.close - 1) * 100, 2)
+        except Exception:
+            pass
+        bench_cache[since] = (time.time(), val)
+        return val
 
     @app.get("/summary")
     def summary():
-        """元手に対して今いくらか(確定+含み損益)。日本円で表示。"""
+        """元手に対して今いくらか(確定+含み損益-想定手数料)を円で。ベンチマークと実資金に進む合格ラインつき。"""
         rep = report()
         pnl_usd = sum(v["total_pnl_usd"] for v in rep.values())
+        fees_usd = sum(v["fees_usd"] for v in rep.values())
         pnl_jpy = pnl_usd * settings.jpy_per_usd
         by_market: dict[str, float] = {}
         for k, v in rep.items():
             m = k.split("/")[0]
             by_market[m] = round(by_market.get(m, 0.0) + v["total_pnl_usd"] * settings.jpy_per_usd, 1)
+        rows = journal.read()
+        started = rows[0]["ts"] if rows else None
+        days = (datetime.now(timezone.utc) - datetime.fromisoformat(started)).days if started else 0
+        closed = sum(1 for r in rows if r["kind"] == "fill" and r["fill"]["realized_pnl"] != 0)
+        ret = pnl_jpy / settings.capital_jpy * 100 if settings.capital_jpy else 0.0
+        bench = benchmark_return_pct(started) if started else None
+        gates = {
+            "90日以上の運用": days >= 90,
+            "決済した取引が30回以上": closed >= 30,
+            "手数料込みでプラス": pnl_jpy > 0,
+        }
         return {
             "capital_jpy": settings.capital_jpy,
             "equity_jpy": round(settings.capital_jpy + pnl_jpy, 1),
             "pnl_jpy": round(pnl_jpy, 1),
-            "return_pct": round(pnl_jpy / settings.capital_jpy * 100, 2) if settings.capital_jpy else None,
+            "return_pct": round(ret, 2),
+            "fees_jpy": round(fees_usd * settings.jpy_per_usd, 1),
+            "benchmark_spy_return_pct": bench,
+            "beats_spy": (ret > bench) if bench is not None else None,
+            "started_at": started,
+            "days_running": days,
+            "closed_trades": closed,
             "pnl_jpy_by_market": by_market,
             "bots": n_bots,
             "per_bot_jpy": round(settings.capital_jpy / max(n_bots, 1), 1),
-            "note": "模擬。手数料・スリッページなし。円換算は固定レート(JPY_PER_USD)",
+            "real_money_gates": gates,
+            "ready_for_real_money": all(gates.values()),
+            "note": "模擬。手数料は想定率(暗号資産0.2%/FX0.02%/株0.1%)、スリッページなし。円換算は固定レート。"
+                    "合格ライン(real_money_gates)を全部満たしても実資金は保証ではなく、最初は失ってもよい額で",
         }
 
     bt_cache: dict[tuple, tuple[float, dict]] = {}

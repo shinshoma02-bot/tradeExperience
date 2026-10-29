@@ -17,9 +17,10 @@ class Settings:
     enabled_markets: frozenset = field(default_factory=frozenset)
     journal_path: str = "data/journal.jsonl"
     runner_enabled: bool = False
-    # 1万円で現実に分散できる4つ(先物は最小単位が大きすぎるので外した。日本株は1株が配分額を超えがちなので外した)
+    # 1万円で現実に分散できる4つ。暗号資産は変動が大きすぎるので外した(先物は最小単位が大きすぎる、
+    # 日本株は1株が配分額を超えがちなので外した)。FXは1通貨単位で取引できる業者なら少額でも可能
     runner_instruments: str = (
-        "crypto:kraken:XBTUSD,crypto:kraken:ETHUSD,fx:yahoo:USDJPY=X:JPY,us_stock:yahoo:SPY"
+        "fx:yahoo:USDJPY=X:JPY,fx:yahoo:EURJPY=X:JPY,fx:yahoo:AUDJPY=X:JPY,us_stock:yahoo:SPY"
     )
     runner_interval_min: int = 1440  # 日足
     capital_jpy: float = 10000.0     # 模擬の元手。銘柄×戦略に均等に配分する

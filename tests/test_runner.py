@@ -148,7 +148,7 @@ def test_unrealized_pnl_in_positions_and_report(tmp_path):
     assert p["side"] == "long" and p["mark_price"] == 121.0
     assert abs(p["unrealized_pnl"] - (121 - 110) * p["qty"]) < 1e-9
     rep = client.get("/report").json()["crypto/donchian_breakout"]
-    assert abs(rep["total_pnl_usd"] - rep["unrealized_pnl_usd"]) < 1e-9 and rep["realized_pnl_usd"] == 0
+    assert abs(rep["total_pnl_usd"] - (rep["unrealized_pnl_usd"] - rep["fees_usd"])) < 1e-9 and rep["realized_pnl_usd"] == 0
 
 
 def test_positions_restored_from_journal_after_restart(tmp_path):
@@ -195,4 +195,22 @@ def test_summary_in_yen(tmp_path):
     c.post("/webhook", json={**sig, "action": "buy"})
     c.post("/webhook", json={**sig, "action": "close", "price": 101.5})   # +1.5USD = +225円
     r = c.get("/summary").json()
-    assert r["pnl_jpy"] == 225.0 and r["equity_jpy"] == 10225.0 and r["return_pct"] == 2.25
+    # 想定手数料(暗号資産0.2%): (100+101.5)*0.002=0.403USD=60.45円 を引く
+    assert abs(r["pnl_jpy"] - 164.55) < 0.1 and abs(r["fees_jpy"] - 60.45) < 0.1
+    assert r["closed_trades"] == 1 and r["days_running"] == 0
+    assert r["real_money_gates"]["決済した取引が30回以上"] is False and r["ready_for_real_money"] is False
+
+
+def test_summary_benchmark_and_gates(tmp_path):
+    import time as _t
+
+    now = int(_t.time())
+    bars = [Candle(now - 86400 * 5, 1, 1, 100.0), Candle(now + 3600, 1, 1, 110.0)]  # SPYが+10%
+    s = Settings(webhook_secret="x", journal_path=str(tmp_path / "j.jsonl"), capital_jpy=10000, jpy_per_usd=150,
+                 runner_instruments="crypto:kraken:XBTUSD", enabled_markets=frozenset({"crypto"}))
+    c = TestClient(create_app(s, benchmark_fetch=lambda: bars))
+    sig = dict(secret="x", market="crypto", strategy="t", symbol="XBTUSD", price=100.0, qty=1.0)
+    c.post("/webhook", json={**sig, "action": "buy"})
+    r = c.get("/summary").json()
+    assert r["benchmark_spy_return_pct"] == 10.0 and r["beats_spy"] is False
+    assert r["real_money_gates"]["90日以上の運用"] is False

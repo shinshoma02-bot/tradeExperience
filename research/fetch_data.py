@@ -31,3 +31,14 @@ save("fx15.json", ["USDJPY=X", "EURJPY=X", "GBPJPY=X", "AUDJPY=X", "NZDJPY=X", "
                    "AUDUSD=X", "NZDUSD=X", "USDCAD=X", "USDCHF=X", "MXNJPY=X", "ZARJPY=X", "TRYJPY=X"], "15y", False)
 save("daily15.json", ["SPY", "QQQ", "IWM", "EFA", "EEM", "TLT", "IEF", "GLD", "DBC", "VNQ", "XLK", "XLV", "XLE", "XLF",
                       "XLU", "XLP", "BTC-USD", "ETH-USD", "1306.T", "1321.T", "USDJPY=X", "SHY", "VT", "AGG"], "15y", True)
+
+
+# BIS(国際決済銀行)の政策金利(月次)。スワップ(金利差)の概算用。carry.py が使う
+import io
+
+import pandas as pd
+
+url = ("https://stats.bis.org/api/v2/data/dataflow/BIS/WS_CBPOL/1.0/"
+       "M.JP+US+XM+GB+AU+NZ+CA+CH+MX+ZA+TR?format=csv&startPeriod=2011-01")
+raw = urllib.request.urlopen(urllib.request.Request(url, headers=H), timeout=30).read().decode()
+pd.read_csv(io.StringIO(raw))[["REF_AREA", "TIME_PERIOD", "OBS_VALUE"]].to_csv(os.path.join(HERE, "data", "bis_policy.csv"), index=False)
