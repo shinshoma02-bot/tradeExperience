@@ -17,6 +17,8 @@ from app.models import Signal
 from app.forward.ai_judge import TARGETS as AI_TARGETS
 from app.forward.ai_judge import AIForwardLog, recent_returns
 from app.forward.ai_judge import evaluate as ai_evaluate
+from app.maintenance import (iso_week_key, max_drawdown_pct, milestone_messages, month_key, monthly_message,
+                             weekly_message)
 from app.notify import Notifier
 from app.risk import RiskError, RiskManager
 from app.runner.backtest import DEFAULT_FEE_BPS, run_all
@@ -141,6 +143,7 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
     async def lifespan(app: FastAPI):
         task = None
         ai_task = asyncio.create_task(ai_loop()) if ai_on else None
+        maint_task = asyncio.create_task(maintenance_loop())
         notifier.send("サーバー起動", f"tradeExperience 起動(mode={settings.trading_mode}, runner={bool(runner)})", "low")
         if runner and runner_fetch is None:  # テスト時は自動ループを動かさない
             task = asyncio.create_task(runner.loop(every_sec=60 if settings.runner_interval_min < 240 else 600))
@@ -149,6 +152,7 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
             task.cancel()
         if ai_task:
             ai_task.cancel()
+        maint_task.cancel()
 
     app = FastAPI(title="tradeExperience", lifespan=lifespan)
     app.state.runner = runner
@@ -246,9 +250,8 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
         bench_cache[since] = (time.time(), val)
         return val
 
-    @app.get("/summary")
-    def summary():
-        """元手に対して今いくらか(確定+含み損益-想定手数料)を円で。ベンチマークと実資金に進む合格ラインつき。"""
+    def status(with_benchmark: bool = False) -> dict:
+        """元手に対する今の損益(確定+含み損益-想定手数料)と、合格ラインの判定。ネットワークは使わない(ベンチマーク以外)。"""
         rep = report()
         pnl_usd = sum(v["total_pnl_usd"] for v in rep.values())
         fees_usd = sum(v["fees_usd"] for v in rep.values())
@@ -262,12 +265,13 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
         days = (datetime.now(timezone.utc) - datetime.fromisoformat(started)).days if started else 0
         closed = sum(1 for r in rows if r["kind"] == "fill" and r["fill"]["realized_pnl"] != 0)
         ret = pnl_jpy / settings.capital_jpy * 100 if settings.capital_jpy else 0.0
-        bench = benchmark_return_pct(started) if started else None
+        bench = benchmark_return_pct(started) if (started and with_benchmark) else None
         gates = {
             "90日以上の運用": days >= 90,
             "決済した取引が30回以上": closed >= 30,
             "手数料込みでプラス": pnl_jpy > 0,
         }
+        equities = [r["equity_jpy"] for r in rows if r["kind"] == "snapshot"]
         return {
             "capital_jpy": settings.capital_jpy,
             "equity_jpy": round(settings.capital_jpy + pnl_jpy, 1),
@@ -282,11 +286,65 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
             "pnl_jpy_by_market": by_market,
             "bots": n_bots,
             "per_bot_jpy": round(settings.capital_jpy / max(n_bots, 1), 1),
+            "snapshots": len(equities),
+            "max_drawdown_pct": max_drawdown_pct(equities) if equities else None,
             "real_money_gates": gates,
             "ready_for_real_money": all(gates.values()),
             "note": "模擬。手数料は想定率(暗号資産0.2%/FX0.02%/株0.1%)、スリッページなし。円換算は固定レート。"
                     "合格ライン(real_money_gates)を全部満たしても実資金は保証ではなく、最初は失ってもよい額で",
         }
+
+    @app.get("/summary")
+    def summary():
+        """元手に対して今いくらか(円)。SPY持ちっぱなしとの比較、最大の落ち込み、実資金に進む合格ラインつき。"""
+        return status(with_benchmark=True)
+
+    def maintenance(now: datetime | None = None) -> list[str]:
+        """放置運用の定期処理(30分ごとに呼ぶ)。日次の成績記録、週次レポート、月次リマインダー、節目の通知。
+        通知は記録(kind=notice)に残して、再起動しても二重に送らない。戻り値は今回やったことの一覧。"""
+        now = now or datetime.now(timezone.utc)
+        rows = journal.read()
+        done: list[str] = []
+        sent = {r["key"] for r in rows if r["kind"] == "notice"}
+        today = now.date().isoformat()
+
+        st = status()
+        if not any(r["kind"] == "snapshot" and r.get("day") == today for r in rows):
+            journal.write("snapshot", day=today, equity_jpy=st["equity_jpy"], pnl_jpy=st["pnl_jpy"], fees_jpy=st["fees_jpy"])
+            done.append("snapshot")
+            st = status()
+
+        def notify_once(key: str, title: str, body: str, priority: str = "low") -> None:
+            if key in sent:
+                return
+            journal.write("notice", key=key)
+            sent.add(key)
+            notifier.send(title, body, priority)
+            done.append(key)
+
+        if now.weekday() == 0:  # 月曜(UTC)=日本の月曜の朝9時以降
+            wk = iso_week_key(now)
+            if wk not in sent:
+                st_b = status(with_benchmark=True)
+                ai_days = len({r["ts"][:10] for r in ai_log.rows()}) if ai_on else None
+                title, body = weekly_message(st_b, st_b["max_drawdown_pct"] or 0.0, ai_days)
+                notify_once(wk, title, body)
+        if now.day == 1:
+            title, body = monthly_message()
+            notify_once(month_key(now), title, body)
+        for key, title, body in milestone_messages(st):
+            notify_once(key, title, body, "default")
+        return done
+
+    app.state.maintenance = maintenance
+
+    async def maintenance_loop():
+        while True:
+            try:
+                await asyncio.to_thread(maintenance)
+            except Exception:
+                pass
+            await asyncio.sleep(1800)
 
     @app.get("/ai/forecasts")
     def ai_forecasts(limit: int = 10):
