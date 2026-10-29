@@ -54,6 +54,11 @@ def load_hourly():
         d["bp"] = (d.open.shift(-1) / d.open - 1) * 1e4        # 始値→次の始値
         gap = d.index.to_series().diff().shift(-1) != pd.Timedelta(hours=1)
         d.loc[gap.values, "bp"] = np.nan                         # 次の足が連続でない(週末/欠損)ものは除外
+        # NY 16:00-18:59 はロールオーバー(NY17時)をまたぐ/直前直後でスプレッドが広がり気配が飛ぶ。
+        # 実際は約定できない(or 0.3bpでは約定しない)ので、時間帯テストから除外(別途診断表示)
+        d["roll"] = d.ny.dt.hour.isin([16, 17, 18])
+        d["bp_all"] = d.bp
+        d.loc[d.roll, "bp"] = np.nan
         out[s] = d
         print(f"{s}: {len(d)}本 {d.index[0]}〜{d.index[-1]} UTC, 異常値除去 {nbad}本")
     return out
@@ -172,6 +177,14 @@ def part1(H):
     print("\n===== 1. 時間帯別(1時間保有、始値→次の始値、当日中に手仕舞い) =====")
     rows = hour_of_day(H)
     zb = bonf_z(len(rows))
+    # 診断: ロールオーバー付近の見かけの偏り
+    dg = []
+    for s, d in H.items():
+        for hh in (16, 18):
+            g = d[(d.ny.dt.hour == hh)].bp_all.dropna()
+            dg.append(dict(pair=s, NY現地=f"{hh}h", n=len(g), 平均bp=g.mean(), t=tstat(g)))
+    print("診断(時間帯テストから除外した、NY16時/18時の足。ロールオーバーのスプレッド拡大・気配ずれ由来と疑う):")
+    show(dg)
     print(f"試した(時間帯×通貨ペア×時刻基準 jst/ロンドン現地)= {len(rows)}通り。Bonferroni(5%)のt閾値 = {zb:.2f}")
     full = sorted(rows, key=lambda r: -abs(r["t"]))
     print("全期間 |t| 上位6(符号は買い基準):")
@@ -246,10 +259,10 @@ def part2(H):
     d15, _ = clean_intraday(fetch("USDJPY=X", "15m", "60d"))
     d15 = d15.copy(); d15["jst"] = d15.index + pd.Timedelta(hours=9)
     d15["date"] = d15.jst.dt.normalize(); d15["hm"] = d15.jst.dt.hour * 100 + d15.jst.dt.minute
-    e = d15[d15.hm == 800].set_index("date").open; ex = d15[d15.hm == 950].set_index("date").open   # 9:50足の始値≒9:50
+    e = d15[d15.hm == 800].set_index("date").open; ex = d15[d15.hm == 945].set_index("date").open   # 9:50足の始値≒9:50
     r = ((ex.reindex(e.index) / e - 1) * 1e4).dropna(); r = r[[is_bizday(i, HOL) for i in r.index]]
     isg = np.array([i in gs for i in r.index])
-    print(f"[参考・15分足60日] USDJPY 8:00→9:50: 五十日 n={isg.sum()} 平均 {r[isg].mean():.2f}bp / 通常日 n={(~isg).sum()} 平均 {r[~isg].mean():.2f}bp(標本小さく結論不可)")
+    print(f"[参考・15分足60日] USDJPY 8:00→9:45: 五十日 n={isg.sum()} 平均 {r[isg].mean():.2f}bp / 通常日 n={(~isg).sum()} 平均 {r[~isg].mean():.2f}bp(標本小さく結論不可)")
     # 日足15年
     dd = fetch("USDJPY=X", "1d", "max")
     dd.index = dd.index.normalize()
