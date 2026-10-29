@@ -242,10 +242,12 @@ def run_tests():
                     x = flag[idx].astype(float)
                     if x.sum() < 20:
                         continue
-                    rec = {"asset": sym, "feat": fname, "h": h, "tail": tail, "n_sig": int(x.sum())}
+                    mon = pd.Series(dates[idx][x > 0].month).value_counts(normalize=True)
+                    rec = {"asset": sym, "feat": fname, "h": h, "tail": tail, "n_sig": int(x.sum()),
+                           "top_months": ",".join(f"{m}月{v:.0%}" for m, v in mon.head(3).items())}
                     for name, sl in (("all", slice(None)), ("h1", idx < mid), ("h2", idx >= mid)):
                         yy, xx = (y[sl], x[sl]) if not isinstance(sl, slice) else (y, x)
-                        if xx.sum() < 8:
+                        if xx.sum() < 8 or (1 - xx).sum() < 8:
                             rec[f"b_{name}"], rec[f"t_{name}"] = np.nan, np.nan
                             continue
                         b, t = nw_t(yy, xx, h)
@@ -285,7 +287,7 @@ def analyze():
         c["rt_cost_bp"] = c.asset.map(lambda a: COST_ONEWAY[a] * 2 * 1e4)
         c["net_bp_h2"] = c.gross_bp_h2 - c.rt_cost_bp
         c["trades_h2"] = c.n_h2
-        print(c[["asset", "feat", "h", "tail", "b_h1", "t_h1", "t_h2", "gross_bp_h2", "rt_cost_bp", "net_bp_h2", "trades_h2"]]
+        print(c[["asset", "feat", "h", "tail", "b_h1", "t_h1", "t_h2", "gross_bp_h2", "rt_cost_bp", "net_bp_h2", "trades_h2", "top_months"]]
               .round(2).to_string(index=False))
     # 全体の符号の偏り: 前半と後半の相関(再現性の目安)
     m = df.dropna(subset=["b_h1", "b_h2"])

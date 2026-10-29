@@ -31,6 +31,9 @@ def load_buys(path):
     return tr.merge(s, on="ACCESSION_NUMBER").merge(o, on="ACCESSION_NUMBER")
 
 def yahoo(sym):
+    import re
+    if not re.fullmatch(r"[A-Z0-9.\-]{1,10}", str(sym)):   # 'A/B' のような不正なティッカーは飛ばす(ファイル名にもURLにも使えない)
+        return None
     p = os.path.join(D, f"px_{sym}.json")
     if not os.path.exists(p):
         time.sleep(0.08)
