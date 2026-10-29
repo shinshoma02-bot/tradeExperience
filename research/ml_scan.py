@@ -52,14 +52,19 @@ def clean(raw):
     """日付キーのDataFrame群。日次±15%超は異常として除外。US ETFは調整後終値、他はclose。"""
     d = {}
     for s, v in raw.items():
-        idx = pd.to_datetime(v["t"], unit="s").normalize()
+        t = pd.to_datetime(v["t"], unit="s")
+        # FXの足は前日23:00UTC(夏時間)/0:00UTCで日付がずれる→12時間足して丸める。週末の足は捨てる
+        idx = (t + pd.Timedelta(hours=12)).normalize() if s.endswith("=X") else t.normalize()
         df = pd.DataFrame({"o": v["o"], "c": v["a"] if s in ETF + ["QQQ"] else v["c"]}, index=idx)
         df = df[~df.index.duplicated(keep="last")].dropna(subset=["c"]).sort_index()
-        df = df[df["c"] > 0]
+        df = df[(df["c"] > 0) & (df.index.dayofweek < 5)]
         if s not in ("^VIX", "^IRX", "^TNX"):
-            r = df["c"].pct_change().abs()
-            bad = r > 0.15
-            df = df[~bad]
+            r = df["c"].pct_change()
+            bad = r.abs() > 0.15
+            # 1日だけ飛んで翌日戻る『悪い価格』(スパイク)を除外: |r_t|>1.5% かつ翌日にほぼ全戻し
+            rn = r.shift(-1)
+            spike = (r.abs() > 0.015) & (r * rn < 0) & ((r + rn).abs() < 0.3 * r.abs())
+            df = df[~(bad | spike)]
         d[s] = df
     return d
 
