@@ -42,3 +42,12 @@ url = ("https://stats.bis.org/api/v2/data/dataflow/BIS/WS_CBPOL/1.0/"
        "M.JP+US+XM+GB+AU+NZ+CA+CH+MX+ZA+TR?format=csv&startPeriod=2011-01")
 raw = urllib.request.urlopen(urllib.request.Request(url, headers=H), timeout=30).read().decode()
 pd.read_csv(io.StringIO(raw))[["REF_AREA", "TIME_PERIOD", "OBS_VALUE"]].to_csv(os.path.join(HERE, "data", "bis_policy.csv"), index=False)
+
+
+# ケネス・フレンチ教授のデータライブラリ(因子リターン、月次)。factors_ff.py が使う
+import zipfile
+
+base = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/"
+for name in ["F-F_Research_Data_5_Factors_2x3_CSV.zip", "F-F_Momentum_Factor_CSV.zip", "Japan_5_Factors_CSV.zip", "Japan_MOM_Factor_CSV.zip"]:
+    z = zipfile.ZipFile(io.BytesIO(urllib.request.urlopen(urllib.request.Request(base + name, headers=H), timeout=25).read()))
+    open(os.path.join(HERE, "data", "ff_" + name.replace(".zip", ".csv")), "wb").write(z.read(z.namelist()[0]))
