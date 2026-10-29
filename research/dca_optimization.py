@@ -73,12 +73,14 @@ def multipliers(m):
     }
 
 
-def sim_window(P, mult, s, H, cr, fee, va=False, ls=False):
+def sim_window(P, mult, s, H, cr, fee, va=False, ls=False, inv0=False):
     """開始 s から H か月。戻り値: (最終資産, キャッシュフロー配列[月0..H])。月額B=1。"""
     cash, sh = float(RES_MONTHS), 0.0
     flows = np.zeros(H + 1)
     flows[0] -= RES_MONTHS
     gm = (1 + VA_GROWTH) ** (1 / 12) - 1
+    if inv0:   # 対照: 予備資金も最初に全額投資(=現金を持たないDCA)
+        sh = RES_MONTHS * (1 - fee) / P[s]; cash = 0.0
     if ls:
         sh = H * (1 - fee) / P[s]
         flows[0] -= H
@@ -131,16 +133,24 @@ def run_rules(name, m_sig, P, H, args, starts_dates):
     if n < 12:
         print(f"  {name} {H//12}年: 窓が{n}個で不足"); return {}
     rules = {"DCA": None}
-    rules.update(mults); rules["VA(5%目標,上限2倍)"] = "va"; rules["一括(最初に全額)"] = "ls"
-    res = {}
+    rules.update(mults); rules["VA(5%目標,上限2倍)"] = "va"; rules["一括(最初に全額)"] = "ls"; rules["対照:予備を即投資のDCA"] = "inv0"
+    res = {}; rand_ctrl = {}
     for rn, mu in rules.items():
         Ws, Fs = [], []
         for s in range(n):
             if rn == "VA(5%目標,上限2倍)": W, F = sim_window(P, None, s, H, args.cash / 12, args.fee, va=True)
+            elif rn.startswith("対照"): W, F = sim_window(P, np.ones(len(P)), s, H, args.cash / 12, args.fee, inv0=True)
             elif rn.startswith("一括"): W, F = sim_window(P, None, s, H, args.cash / 12, args.fee, ls=True)
             else: W, F = sim_window(P, mu if mu is not None else np.ones(len(P)), s, H, args.cash / 12, args.fee)
             Ws.append(W); Fs.append(F)
         res[rn] = (np.array(Ws), irr_monthly(np.array(Fs)))
+        if mu is not None and not isinstance(mu, str) and rn in mults:   # 乱数対照: 同じ頻度・同じ倍率をランダムな月に
+            rng = np.random.default_rng(1); pr = np.mean(mu != 1.0); v = mu[mu != 1.0].mean() if pr > 0 else 1.0
+            acc = np.zeros(n)
+            for _ in range(6):
+                rm = np.where(rng.random(len(P)) < pr, v, 1.0)
+                acc += np.array([sim_window(P, rm, s, H, args.cash / 12, args.fee)[0] for s in range(n)])
+            rand_ctrl[rn] = acc / 6
     base_W, base_I = res["DCA"]
     contrib = RES_MONTHS + H
     yrs = np.array(starts_dates[:n])
@@ -150,16 +160,19 @@ def run_rules(name, m_sig, P, H, args, starts_dates):
     print(f"DCA 最終資産/拠出(予備資金込): 中央値 {np.median(dca_ret):.2f}倍, 最悪 {dca_ret.min():.2f}倍, 最良 {dca_ret.max():.2f}倍; "
           f"IRR(年) 中央値 {np.median(base_I)*100:.1f}% 最悪 {base_I.min()*100:.1f}% ; 拠出を割った窓 {np.mean(dca_ret<1)*100:.0f}% ; "
           f"月1万円なら中央 {np.median(base_W)*1e4/1e4:.0f}万円(拠出{contrib}万), 3万円なら {np.median(base_W)*3:.0f}万円")
-    print(f"{'ルール':26s}{'平均比':>7s}{'中央比':>7s}{'勝率':>6s}{'最悪比':>7s}{'最良比':>7s}{'logCI95':>16s}{'z':>6s}{'IRR差pt':>8s}{'前半比/勝':>12s}{'後半比/勝':>12s}")
+    print(f"{'ルール':26s}{'平均比':>7s}{'中央比':>7s}{'勝率':>6s}{'最悪比':>7s}{'最良比':>7s}{'logCI95':>16s}{'z':>6s}{'IRR差pt':>8s}{'乱数同頻度比':>10s}{'前半比/勝':>12s}{'後半比/勝':>12s}")
     out = {}
     for rn, (W, I) in res.items():
         if rn == "DCA": continue
         ratio = W / base_W; d = np.log(ratio)
         ci, se = block_boot(d, H)
-        z = d.mean() / se if se > 0 else np.nan
+        few = n / H < 2.5      # 独立ブロックが少なすぎると区間は当てにならない
+        z = d.mean() / se if (se > 0 and not few) else np.nan
+        cs = f"[{ci[0]:+.3f},{ci[1]:+.3f}]" if not few else "[ブロック不足]"
+        rc = f"{(rand_ctrl[rn]/base_W).mean():10.3f}" if rn in rand_ctrl else f"{'-':>10s}"
         def hf(mask): return (f"{ratio[mask].mean():.3f}/{(ratio[mask] > 1).mean()*100:.0f}%" if mask.sum() > 5 else "-")
         print(f"{rn:26s}{ratio.mean():7.3f}{np.median(ratio):7.3f}{(ratio>1).mean()*100:5.0f}%{ratio.min():7.3f}{ratio.max():7.3f}"
-              f"  [{ci[0]:+.3f},{ci[1]:+.3f}]{z:6.1f}{(I-base_I).mean()*100:8.2f}{hf(half1):>12s}{hf(half2):>12s}")
+              f"  {cs:>14s}{z:6.1f}{(I-base_I).mean()*100:8.2f}{rc}{hf(half1):>12s}{hf(half2):>12s}")
         out[rn] = (ratio.mean(), (ratio > 1).mean(), z)
     return out
 
@@ -263,7 +276,7 @@ def main():
             summary[(name, H)] = run_rules(name, m, P, H, args, list(years))
     rebalance_study(raw, args)
     lost_decades(raw, args)
-    nrules = 6 + 1 + 1
+    nrules = 6 + 1 + 1 + 0
     print(f"\n試したルール数: 積立ルール{nrules}(閾値は定番値のみ固定)×データ4×期間2 = {nrules*8}検定 + リバランス3方式×2資産×2期間 = 12検定。"
           "窓は重なるのでブロック数(≈窓数/窓長)が実質の標本数。|z|>3.1(≈Bonferroni)を超えない差は『DCAと区別できない』と読む。")
 
