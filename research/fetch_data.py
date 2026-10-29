@@ -1,5 +1,5 @@
 """Yahoo Finance から日足を取って research/data/ に保存する(研究用。リポジトリには含めない)。
-  python research/fetch_data.py      → daily.json(10年・個別銘柄)と daily15.json(15年・ETF/調整後終値)
+  python research/fetch_data.py      → daily.json(10年・個別銘柄)、daily15.json(15年・ETF/調整後終値)、fx15.json(15年・為替)
 """
 import json, os, urllib.request
 
@@ -27,5 +27,7 @@ def save(name, syms, rng, with_adj):
 
 
 save("daily.json", ["BTC-USD", "ETH-USD", "USDJPY=X", "EURUSD=X", "AAPL", "NVDA", "SPY", "7203.T", "1306.T", "6758.T"], "10y", False)
+save("fx15.json", ["USDJPY=X", "EURJPY=X", "GBPJPY=X", "AUDJPY=X", "NZDJPY=X", "CADJPY=X", "CHFJPY=X", "EURUSD=X", "GBPUSD=X",
+                   "AUDUSD=X", "NZDUSD=X", "USDCAD=X", "USDCHF=X", "MXNJPY=X", "ZARJPY=X", "TRYJPY=X"], "15y", False)
 save("daily15.json", ["SPY", "QQQ", "IWM", "EFA", "EEM", "TLT", "IEF", "GLD", "DBC", "VNQ", "XLK", "XLV", "XLE", "XLF",
                       "XLU", "XLP", "BTC-USD", "ETH-USD", "1306.T", "1321.T", "USDJPY=X", "SHY", "VT", "AGG"], "15y", True)
