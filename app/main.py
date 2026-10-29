@@ -17,8 +17,8 @@ from app.models import Signal
 from app.forward.ai_judge import TARGETS as AI_TARGETS
 from app.forward.ai_judge import AIForwardLog, recent_returns
 from app.forward.ai_judge import evaluate as ai_evaluate
-from app.maintenance import (iso_week_key, max_drawdown_pct, milestone_messages, month_key, monthly_message,
-                             weekly_message)
+from app.maintenance import (crash_messages, drawdown_from_high, iso_week_key, max_drawdown_pct, milestone_messages,
+                             month_key, monthly_message, weekly_message)
 from app.notify import Notifier
 from app.risk import RiskError, RiskManager
 from app.runner.backtest import DEFAULT_FEE_BPS, run_all
@@ -334,6 +334,16 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
             notify_once(month_key(now), title, body)
         for key, title, body in milestone_messages(st):
             notify_once(key, title, body, "default")
+
+        # 相場(SPY)が高値から-15%/-25%のとき、積立を続ける理由を1通だけ(下落の局面ごと)
+        try:
+            fetch = benchmark_fetch or (lambda: fetch_candles(Instrument("us_stock", "yahoo", "SPY"), 1440, days=1500))
+            dd = drawdown_from_high([(c.ts, c.close) for c in fetch()])
+            if dd:
+                for key, title, body in crash_messages(*dd):
+                    notify_once(key, title, body, "high")
+        except Exception:
+            pass
         return done
 
     app.state.maintenance = maintenance

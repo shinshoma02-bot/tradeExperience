@@ -61,3 +61,27 @@ def milestone_messages(st: dict) -> list[tuple[str, str, str]]:
         out.append(("milestone:ready", "合格ラインを全部満たしました",
                     "実資金の成功を保証するものではありません。使うなら失ってもよい額から。SPY持ちっぱなしとの比較も見てください。"))
     return out
+
+
+def drawdown_from_high(closes_with_ts: list[tuple[int, float]]) -> tuple[float, int] | None:
+    """(現在の高値からの下落率(%、0以下), 高値を付けた日のタイムスタンプ)。データが無ければ None。"""
+    if not closes_with_ts:
+        return None
+    ts_high, high = max(closes_with_ts, key=lambda x: x[1])
+    return round((closes_with_ts[-1][1] / high - 1) * 100, 2), ts_high
+
+
+CRASH_LEVELS = (15, 25)
+
+
+def crash_messages(dd_pct: float, ts_high: int) -> list[tuple[str, str, str]]:
+    """市場(SPY)が高値から-15%/-25%に達したとき、積立を続ける理由を1通だけ送る(下落の局面ごとに各1回)。
+    根拠: 積立を止める/売る行動は、実データで最終資産を中央値で約10〜40%削った(例外あり。research/behavior_gap.py)。"""
+    out = []
+    for lv in CRASH_LEVELS:
+        if dd_pct <= -lv:
+            out.append((f"crash{lv}:{ts_high}", f"相場が高値から-{lv}%です(積立は続けましょう)",
+                        "過去のデータでは、下落で積立を止める・売ると、最終資産が中央値で約10〜40%減りました(例外もあります)。\n"
+                        "確認すること: ①生活防衛資金は足りているか ②積立額に無理はないか ③10年以内に取り崩す予定はないか\n"
+                        "『売る・止める』を押したくなったら、翌日まで待ってください。値動きを毎日見る必要はありません。"))
+    return out

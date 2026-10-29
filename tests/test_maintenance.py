@@ -71,3 +71,26 @@ def test_milestone_90_days_and_30_trades(tmp_path):
     assert {"milestone:days90", "milestone:trades30", "milestone:ready"} <= set(done)
     assert any("合格ライン" in t for t, _ in sent)
     assert [k for k in app2.state.maintenance(utc(2026, 11, 4, 12)) if k.startswith("milestone")] == []
+
+
+def test_crash_notice_once_per_episode(tmp_path):
+    from app.maintenance import crash_messages, drawdown_from_high
+    from app.runner.data import Candle
+
+    assert drawdown_from_high([]) is None
+    dd, ts = drawdown_from_high([(1, 100.0), (2, 120.0), (3, 90.0)])
+    assert dd == -25.0 and ts == 2
+    assert [k for k, _, _ in crash_messages(dd, ts)] == ["crash15:2", "crash25:2"]
+    assert crash_messages(-10.0, 2) == []
+
+    sent = []
+    n = Notifier("t")
+    n.send = lambda title, message, priority="default", dedupe_key=None, dedupe_sec=3600: sent.append((title, message))
+    candles = [Candle(i, 1, 1, c) for i, c in [(1, 100.0), (2, 120.0), (3, 96.0)]]   # 高値から-20%
+    s = Settings(webhook_secret="x", journal_path=str(tmp_path / "j.jsonl"), runner_instruments="crypto:kraken:XBTUSD",
+                 enabled_markets=frozenset({"crypto"}))
+    app = create_app(s, notifier=n, benchmark_fetch=lambda: candles)
+    done = app.state.maintenance(utc(2026, 11, 4))
+    assert "crash15:2" in done and "crash25:2" not in done
+    assert any("積立は続けましょう" in t for t, _ in sent)
+    assert "crash15:2" not in app.state.maintenance(utc(2026, 11, 5))                 # 同じ局面で二度送らない
