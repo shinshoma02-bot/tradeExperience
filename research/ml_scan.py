@@ -102,14 +102,18 @@ def build(d):
             f[f"dow{k}"] = (dw == k).astype(float)
         f["month_sin"] = np.sin(2 * np.pi * f.index.month / 12); f["month_cos"] = np.cos(2 * np.pi * f.index.month / 12)
         Pi = P.reindex(f.index)  # ffill済み: 日付<=tの最新値(JP/FXターゲットでも未来は含まない)
+        # Yahooの為替『日足の終値』は日付tの0:00UTC頃のスナップ(=実質前日終わりの値)。実測: 為替のt日リターンは
+        # SPYのt-1日・日経のt日(日経はSPYのt-1に連動)と相関。つまり日付tの終値より後に、日経t(6:00UTC)・SPYt(21:00UTC)が起きる。
+        # よって為替ターゲットでは、為替以外(米国・日経・1348.T・VIX・金利)の特徴量は全て1営業日ラグ(同日分はルックアヘッド)。
+        lag = 1 if s in FX else 0
         for o in CROSS:
             if o == s:
                 continue
-            ro = ret[o].reindex(f.index)
-            f[f"x_{o}_r1"] = ro
-            f[f"x_{o}_r5"] = np.log(Pi[o]).diff(5)
+            L = lag if o not in FX else 0
+            f[f"x_{o}_r1"] = ret[o].shift(L).reindex(f.index)
+            f[f"x_{o}_r5"] = np.log(P[o]).diff(5).shift(L).reindex(f.index)
         for k in macro.columns:
-            f[f"m_{k}"] = macro[k].reindex(f.index)
+            f[f"m_{k}"] = macro[k].shift(lag).reindex(f.index)
         # ターゲット
         if s in JP:  # t+1 の 寄り→引け
             nxt = (own["c"] / own["o"] - 1).shift(-1)
@@ -225,7 +229,7 @@ def null_job(data, frac):
 
 
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument("--perms", type=int, default=60); ap.add_argument("--quick", action="store_true")
+    ap = argparse.ArgumentParser(); ap.add_argument("--perms", type=int, default=40); ap.add_argument("--quick", action="store_true")
     a = ap.parse_args()
     t0 = time.time()
     data = build(clean(fetch()))
@@ -244,12 +248,12 @@ def main():
         bh = sharpe(idx)
         rows.append(dict(asset=s, model=k[1], h=k[2], sharpe=sharpe(pnl), ann_ret=pnl.mean() * 252 * 100,
                          hit=float((np.sign(pnl[pnl != 0]) > 0).mean()) * 100 if (pnl != 0).any() else np.nan,
-                         exposure=float((pnl != 0).mean()) * 100, gross_sh=np.nan, bh_sharpe=bh, bh_ret=idx.mean() * 252 * 100,
+                         exposure=float((pnl != 0).mean()) * 100, bh_sharpe=bh, bh_ret=idx.mean() * 252 * 100,
                          years_pos=float(np.mean([pnl[ds.year == y].sum() > 0 for y in sorted(set(ds.year))])),
                          n=len(pnl)))
     df = pd.DataFrame(rows).sort_values("sharpe", ascending=False)
     pd.set_option("display.width", 200); pd.set_option("display.max_rows", 200)
-    print("\n=== OOS(2009〜)ネット成績 上位15 ===")
+    print("\n=== OOSネット成績(OOSは各資産の特徴量が揃ってから5年後の2014頃〜2026-10) 上位15 ===")
     print(df.head(15).round(2).to_string(index=False))
     print("\n=== 全72設定のネットSharpe分布 === 平均 %.3f 中央値 %.3f 最大 %.3f 最小 %.3f 正の割合 %.0f%%" % (
         df.sharpe.mean(), df.sharpe.median(), df.sharpe.max(), df.sharpe.min(), (df.sharpe > 0).mean() * 100))
@@ -300,7 +304,7 @@ def main():
     # 年別分布(上位3設定+全設定の平均)
     print("\n=== 年別ネット損益(%)  上位3設定と全設定平均 ===")
     top3 = df.head(3)
-    yrs = list(range(2009, 2027))
+    yrs = list(range(2014, 2027))
     tab = {}
     for _, r_ in top3.iterrows():
         v = real[(r_.asset, r_.model, int(r_.h))]
