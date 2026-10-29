@@ -26,6 +26,11 @@ class Settings:
     capital_jpy: float = 10000.0     # 模擬の元手。銘柄×戦略に均等に配分する
     runner_order_notional: float = 0.0  # 0なら元手から自動計算(1ボットあたりの配分額USD)
     jpy_per_usd: float = 150.0  # 円建て銘柄を米ドルに直す概算レート(模擬用)
+    ai_log_enabled: bool = False        # AIの前向き予測の記録(売買はしない)
+    anthropic_api_key: str = ""
+    ai_model: str = "claude-haiku-5-5"
+    ai_log_hour_utc: int = 22           # 毎日この時刻(UTC)以降に1回記録(22時=日本の朝7時)
+    ai_log_path: str = ""               # 空なら journal と同じフォルダの ai_forecasts.jsonl
     ntfy_topic: str = ""
     ntfy_server: str = "https://ntfy.sh"
 
@@ -64,6 +69,11 @@ class Settings:
             capital_jpy=capital_jpy,
             runner_order_notional=float(env("RUNNER_ORDER_NOTIONAL", "0")),
             jpy_per_usd=float(env("JPY_PER_USD", "150")),
+            ai_log_enabled=_bool(env("AI_LOG_ENABLED", "false")),
+            anthropic_api_key=env("ANTHROPIC_API_KEY", ""),
+            ai_model=env("AI_MODEL", "claude-haiku-5-5"),
+            ai_log_hour_utc=int(env("AI_LOG_HOUR_UTC", "22")),
+            ai_log_path=env("AI_LOG_PATH", ""),
             ntfy_topic=env("NTFY_TOPIC", ""),
             ntfy_server=env("NTFY_SERVER", "https://ntfy.sh"),
         )

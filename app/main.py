@@ -1,5 +1,6 @@
 import asyncio
 import hmac
+import os
 import threading
 import time
 from datetime import date, datetime, timezone
@@ -13,6 +14,8 @@ from app.brokers.paper import PaperBroker
 from app.config import Settings
 from app.journal import Journal
 from app.models import Signal
+from app.forward.ai_judge import TARGETS as AI_TARGETS
+from app.forward.ai_judge import AIForwardLog, evaluate as ai_evaluate
 from app.notify import Notifier
 from app.risk import RiskError, RiskManager
 from app.runner.backtest import DEFAULT_FEE_BPS, run_all
@@ -22,7 +25,7 @@ from app.runner.strategies import STRATEGIES
 
 
 def create_app(settings: Settings | None = None, runner_fetch=None, notifier: Notifier | None = None,
-               backtest_fetch=None, benchmark_fetch=None) -> FastAPI:
+               backtest_fetch=None, benchmark_fetch=None, ai_llm=None, ai_headlines=None, ai_candles=None) -> FastAPI:
     settings = settings or Settings.from_env()
     if settings.trading_mode != "paper":
         # 実ブローカー実装までは安全のため paper 以外では起動させない
@@ -101,15 +104,40 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
             **kw,
         )
 
+    ai_path = settings.ai_log_path or os.path.join(os.path.dirname(settings.journal_path) or ".", "ai_forecasts.jsonl")
+    ai_log = AIForwardLog(ai_path)
+    ai_on = settings.ai_log_enabled and bool(settings.anthropic_api_key)
+
+    async def ai_loop():
+        """毎日 ai_log_hour_utc 以降に1回だけ、見出しからの予測を追記する(売買には使わない)。"""
+        while True:
+            try:
+                now = datetime.now(timezone.utc)
+                if now.hour >= settings.ai_log_hour_utc:
+                    kw = {}
+                    if ai_llm:
+                        kw["llm"] = ai_llm
+                    if ai_headlines:
+                        kw["fetch"] = ai_headlines
+                    row = await asyncio.to_thread(ai_log.run_once, settings.anthropic_api_key, settings.ai_model, now, **kw)
+                    if row:
+                        journal.write("ai_forecast", forecast=row["forecast"])
+            except Exception:
+                pass
+            await asyncio.sleep(1800)
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         task = None
+        ai_task = asyncio.create_task(ai_loop()) if ai_on else None
         notifier.send("サーバー起動", f"tradeExperience 起動(mode={settings.trading_mode}, runner={bool(runner)})", "low")
         if runner and runner_fetch is None:  # テスト時は自動ループを動かさない
             task = asyncio.create_task(runner.loop(every_sec=60 if settings.runner_interval_min < 240 else 600))
         yield
         if task:
             task.cancel()
+        if ai_task:
+            ai_task.cancel()
 
     app = FastAPI(title="tradeExperience", lifespan=lifespan)
     app.state.runner = runner
@@ -123,6 +151,7 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
             "runner": bool(runner),
             "notify": notifier.enabled,
             "restored_fills": restored,
+            "ai_log": ai_on,
         }
 
     @app.post("/webhook")
@@ -247,6 +276,27 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
             "note": "模擬。手数料は想定率(暗号資産0.2%/FX0.02%/株0.1%)、スリッページなし。円換算は固定レート。"
                     "合格ライン(real_money_gates)を全部満たしても実資金は保証ではなく、最初は失ってもよい額で",
         }
+
+    @app.get("/ai/forecasts")
+    def ai_forecasts(limit: int = 10):
+        """記録されたAIの予測(新しい順)。"""
+        rows = ai_log.rows()[-max(1, min(limit, 100)):][::-1]
+        return [{"ts": r["ts"], "model": r["model"], "prompt_version": r["prompt_version"],
+                 "n_headlines": len(r["headlines"]), "forecast": r["forecast"]} for r in rows]
+
+    @app.get("/ai/eval")
+    def ai_eval():
+        """AIの予測が当たったか(1日後・5日後)。ランダム・『いつも上』と比べて見る。売買は一切していない。"""
+        rows = ai_log.rows()
+        if not rows:
+            return {"forecasts": 0, "note": "まだ記録がない"}
+        try:
+            candles = ai_candles() if ai_candles else {
+                t: fetch_candles(Instrument("us_stock" if t == "SPY" else "jp_stock" if t.endswith(".T") else "fx", "yahoo", t), 1440, days=400)
+                for t in AI_TARGETS}
+        except Exception as e:
+            return {"forecasts": len(rows), "error": f"価格取得に失敗: {e}"}
+        return {"forecasts": len(rows), "since": rows[0]["ts"], "results": ai_evaluate(rows, candles)}
 
     bt_cache: dict[tuple, tuple[float, dict]] = {}
 
