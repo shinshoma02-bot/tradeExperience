@@ -335,6 +335,15 @@ def _top_combos(t: np.ndarray, k: int = 10) -> list[dict]:
     return [{"c": "-".join(str(x + 1) for x in COMBOS[i]), "p": round(float(t[i]), 5)} for i in idx]
 
 
+def _top_exacta(t: np.ndarray, k: int = 6) -> list[dict]:
+    """3連単の確率を3着で足し合わせて、2連単(1着-2着)の確率にする。"""
+    ex = np.zeros(36)
+    for c, (i, j, _) in enumerate(COMBOS):
+        ex[i * 6 + j] += t[c]
+    idx = np.argsort(-ex)[:k]
+    return [{"c": f"{i // 6 + 1}-{i % 6 + 1}", "p": round(float(ex[i]), 5)} for i in idx]
+
+
 def race_cards(ent, races, meta, mask, P1, T, rows: np.ndarray, live=None, P1x=None, Tx=None) -> list[dict]:
     """レース1件ずつの表示用データ(予想 + あれば結果)。"""
     rmap = races.set_index(["date", "race_no"])
@@ -358,7 +367,7 @@ def race_cards(ent, races, meta, mask, P1, T, rows: np.ndarray, live=None, P1x=N
                           "ex_time": float(b["ex_time"]) if pd.notna(b.get("ex_time")) else None,
                           "st": float(b["st"]) if pd.notna(b.get("st")) else None})
         c = {"date": str(mr["date"].date()), "race_no": int(mr["race_no"]), "boats": boats,
-             "top": _top_combos(T[r], 10)}
+             "top": _top_combos(T[r], 10), "top2": _top_exacta(T[r])}
         lv = (live or {}).get(key)
         if lv:
             c["live"] = {k: lv[k] for k in ("weather", "course_order") if k in lv}
@@ -370,6 +379,7 @@ def race_cards(ent, races, meta, mask, P1, T, rows: np.ndarray, live=None, P1x=N
                     b["px"] = round(float(P1x[r, b["lane"] - 1]), 4)
             if Tx is not None and lv.get("boats"):
                 c["top_x"] = _top_combos(Tx[r], 10)
+                c["top2_x"] = _top_exacta(Tx[r])
             wo = lv.get("win_odds") or {}
             if wo:
                 c["win_odds"] = {int(k): v for k, v in wo.items()}
