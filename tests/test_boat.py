@@ -70,3 +70,21 @@ def test_parse_odds_pages():
     </tbody></table>"""
     o = upcoming.parse_3t(html)
     assert o["1-2-3"] == 16.6 and o["2-1-3"] == 32.0 and o["1-2-4"] == 19.6 and o["6-1-3"] == 1027.0
+
+
+def test_forward_record_and_evaluate(tmp_path, monkeypatch):
+    import pandas as pd
+    from boat import forward
+    monkeypatch.setattr(forward, "LOG", tmp_path / "log.jsonl")
+    cards = [{"date": "2026-10-02", "race_no": 1, "boats": [{"lane": l, "p": 1 / 6} for l in range(1, 7)],
+              "win_odds": {1: 3.0, 6: 8.0}, "ev_all": [{"c": "6-1-3", "p": 0.05, "odds": 40.0}]},
+             {"date": "2026-10-02", "race_no": 2, "boats": [], "win_odds": {}}]  # オッズ無しは記録しない
+    assert forward.record(cards) == 1
+    races = pd.DataFrame([{"date": pd.Timestamp("2026-10-02"), "race_no": 1, "win_pay": 800, "win_lane": 6,
+                           "3連単_combo": "6-1-3", "3連単_pay": 4000}])
+    ev = forward.evaluate(races)
+    assert ev["settled"] == 1
+    s = {x["label"]: x for x in ev["strategies"]}
+    # 単勝: 6号艇は 1/6×8.0=1.33 ≥1.0 → 的中で8.0倍 / 3連単 6-1-3 は 0.05×40=2.0 → 40倍
+    assert s["単勝: 期待値1.0以上の艇すべて"]["roi"] == 8.0
+    assert s["3連単: 期待値1.5以上の組合せすべて(確率1%以上)"]["roi"] == 40.0

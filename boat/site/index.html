@@ -77,6 +77,10 @@ details summary{cursor:pointer;color:var(--acc)}
 <div style="overflow-x:auto"><table id="roiTable"></table></div>
 <p class="sub">払戻は実際の公式の確定払戻。<b>100%を超えないと負け</b>。「±」は偶然のぶれ(標準誤差の2倍)で、差がこれより小さければ誤差の範囲です。</p>
 <p id="evalVerdict" style="font-weight:600"></p>
+<h3>前向き記録(期待値で買ったら本当に得か)</h3>
+<div class="sub" id="fwNote"></div>
+<div style="overflow-x:auto"><table id="fwTable"></table></div>
+<p class="sub">予想を出した時点のオッズごと記録して、結果が出たら答え合わせしています(未来を見ていない本物の検証)。<b>レース数が数百たまるまでは偶然のぶれが大きい</b>ので、数字は参考程度に。</p>
 <h3>確率は当たっているか(キャリブレーション)</h3>
 <div style="overflow-x:auto"><table id="calTable"></table></div>
 <p class="sub">「モデルが◯%と言った本命」が実際に何%勝ったか。ズレが小さいほど確率として信用できます。</p>
@@ -212,6 +216,12 @@ function initEval(){
   tbl('calTable',['モデルの本命の確率','レース数','モデルの予想','実際に勝った率'],v.calibration.map(c=>[`${(c.lo*100).toFixed(0)}〜${(c.hi*100).toFixed(0)}%`,c.n,pc(c.pred),pc(c.actual)]));
 }
 
+function initFwd(){
+  const f=D.forward||{logged:0,settled:0,pending:0,strategies:[]};
+  $('fwNote').textContent=`記録したレース ${f.logged}(答え合わせ済み ${f.settled} / 結果待ち ${f.pending})`;
+  if(!f.strategies.length){$('fwTable').innerHTML='<tr><td class="sub">まだ答え合わせできるレースがありません。オッズが出てから予想を更新すると記録されます。</td></tr>';return}
+  tbl('fwTable',['買い方','買い目数','的中','回収率'],f.strategies.map(r=>[r.label,r.bets,r.hits,`<span class="${r.roi>=1?'good':''}">${pc(r.roi)}</span>`]));
+}
 function initTrend(){
   const d=D.describe;
   $('trNote').textContent=`${d.from}〜${d.to}の${d.n_races}レース(丸亀)。`;
@@ -248,7 +258,7 @@ function initPast(){
 }
 fetch('data.json').then(r=>r.json()).then(d=>{D=d;
   $('meta').textContent=`作成 ${d.built} / 最新の結果 ${d.last_result}`;
-  initUp();initEval();initTrend();initPl();initPast();
+  initUp();initEval();initFwd();initTrend();initPl();initPast();
 }).catch(e=>{$('meta').textContent='データを読み込めませんでした: '+e});
 </script>
 </body>

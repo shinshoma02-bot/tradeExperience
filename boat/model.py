@@ -382,6 +382,7 @@ def race_cards(ent, races, meta, mask, P1, T, rows: np.ndarray, live=None, P1x=N
                     if tt[i] >= 0.01 and k3 in o3:
                         evs.append({"c": k3, "p": round(float(tt[i]), 4), "odds": o3[k3],
                                     "ev": round(float(tt[i] * o3[k3]), 3)})
+                c["ev_all"] = evs  # 前向き記録用(確率1%以上の全組合せ)
                 c["ev3"] = sorted(evs, key=lambda x: -x["ev"])[:8]
                 c["odds_top"] = [{"c": k, "odds": v} for k, v in sorted(o3.items(), key=lambda x: x[1])[:5]]
         if rc is not None:
@@ -441,13 +442,20 @@ def run(first_test: str | None = None) -> dict:
     recent = te_rows[-240:][::-1]
     browse = race_cards(e, races, meta, mask, P1, T, recent)
 
+    from boat import forward
+    n_rec = forward.record(upcoming)  # オッズが取れているレースだけ記録
+    for c in upcoming:
+        c.pop("ev_all", None)
+    fwd = forward.evaluate(races)
+    fwd["recorded_now"] = n_rec
+
     last_b = e["date"].max()
     cur = e[e["date"] == last_b].drop_duplicates("motor").sort_values("motor_2r", ascending=False)
     motors = [{"motor": int(r.motor), "m2r": float(r.motor_2r)} for r in cur.itertuples()]
 
     data = {
         "built": str(date.today()), "live_asof": (live or {}).get("asof"), "last_result": str(last_done.date()),
-        "validation": ev, "describe": describe(ent, races), "racers": racer_table(ent),
+        "validation": ev, "forward": fwd, "describe": describe(ent, races), "racers": racer_table(ent),
         "upcoming": upcoming, "browse": browse,
         "motors": {"asof": str(last_b.date()), "list": motors},
         "weights": {n: round(float(w), 3) for n, w in zip(names, ws[0])},
