@@ -155,6 +155,7 @@ def run() -> dict:
         summary[name] = evaluate(T)
     summary["_baseline_fav"] = evaluate(T.assign(pw=1 / T["pop"].clip(1), pt=1 / T["pop"].clip(1)),
                                         rank_key="pop")
+    summary["_baseline_fav"]["win_logloss"] = None  # 確率になっていないので比較対象外(JSONではnull)
     return dict(df=df, T=T, pred=pred, pred3=pred3, summary=summary, models=list(models), test_years=test_years)
 
 
@@ -217,11 +218,11 @@ def build_site(res: dict) -> None:
 
 def main() -> None:
     res = run()
-    print(f"検証対象: {res['test_years']} / {res['summary']['_baseline_fav']['races']}レース")
+    print(f"検証対象: {[int(y) for y in res['test_years']]} / {res['summary']['_baseline_fav']['races']}レース")
     print(f"{'モデル':<16}{'1位的中':>8}{'3着内':>8}{'単勝回収':>9}{'複勝回収':>9}{'logloss':>9}")
     for k, s in res["summary"].items():
         name = "1番人気を買う" if k == "_baseline_fav" else k
-        print(f"{name:<16}{s['win_rate']:>8.1%}{s['top3_rate']:>8.1%}{s['win_roi']:>9.1%}{s['place_roi']:>9.1%}{s['win_logloss']:>9.3f}")
+        print(f"{name:<16}{s['win_rate']:>8.1%}{s['top3_rate']:>8.1%}{s['win_roi']:>9.1%}{s['place_roi']:>9.1%}{('-' if s['win_logloss'] is None else format(s['win_logloss'], '.3f')):>9}")
     build_site(res)
     print("書き出し", OUT, OUT.stat().st_size // 1024, "KB")
 

@@ -44,6 +44,7 @@ details summary{cursor:pointer;color:var(--acc)}
 <div class="sub" id="evalNote"></div>
 <div style="overflow-x:auto"><table id="evalTable"></table></div>
 <p class="sub" style="margin-top:10px">回収率=毎レースその買い目に100円ずつ賭けたときの、払戻合計÷賭け金。100%を超えないと負けです。<br>レース数が少ない(数百)ので、数%の差は偶然の範囲です。</p>
+<p class="sub"><b>「独自(人気なし)」の回収率が高く見えるのは、たぶんまぐれ。</b>的中率19%で当たると十数倍つく穴狙いなので、624レースでも回収率は±25%前後ぶれます(約88%は、100%未満と区別できない)。人気を使うモデルは人気だけの基準とほぼ同じ成績で、<b>みんなの予想に上乗せできた証拠は出ていません</b>。</p>
 <details><summary>用語の説明</summary>
 <ul class="sub">
 <li><b>1位的中</b>: モデルが1番手にした馬が実際に1着だった割合</li>
@@ -83,7 +84,7 @@ function init(){
   const order=['_baseline_fav',...Object.keys(D.summary).filter(k=>k!=='_baseline_fav')];
   const roi=v=>`<td class="${v>=1?'good':'bad'}">${pct(v)}</td>`;
   $('evalTable').innerHTML='<tr><th>方式</th><th>1位的中</th><th>3着内</th><th>単勝回収</th><th>複勝回収</th><th>logloss</th></tr>'+
-   order.map(k=>{const s=D.summary[k];return `<tr><td class="name">${names[k]||k}</td><td>${pct(s.win_rate)}</td><td>${pct(s.top3_rate)}</td>${roi(s.win_roi)}${roi(s.place_roi)}<td>${s.win_logloss.toFixed(3)}</td></tr>`}).join('');
+   order.map(k=>{const s=D.summary[k];return `<tr><td class="name">${names[k]||k}</td><td>${pct(s.win_rate)}</td><td>${pct(s.top3_rate)}</td>${roi(s.win_roi)}${roi(s.place_roi)}<td>${s.win_logloss==null?'-':s.win_logloss.toFixed(3)}</td></tr>`}).join('');
   const years=[...new Set(D.races.map(r=>r.date.slice(0,4)))];
   $('yearSel').innerHTML=years.map(y=>`<option>${y}</option>`).join('');
   $('yearSel').onchange=$('gradeSel').onchange=fillRaces;

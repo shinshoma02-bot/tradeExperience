@@ -65,7 +65,7 @@ def parse_race(html: str, year: int, rid: str, grade: str, name: str) -> tuple[l
     m = re.search(r"(\d+)年(\d+)月(\d+)日", date_txt)
     date = f"{int(m[1]):04d}-{int(m[2]):02d}-{int(m[3]):02d}" if m else ""
     turf = soup.select_one("li.turf .txt")
-    dirt = soup.select_one("li.dirt .txt")
+    dirt = soup.select_one("li.durt .txt") or soup.select_one("li.dirt .txt")
     ground = "芝" if turf else "ダ"
     going = (turf or dirt).get_text(strip=True) if (turf or dirt) else ""
     course = soup.select_one("div.type .course")

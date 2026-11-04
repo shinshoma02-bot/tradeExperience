@@ -417,4 +417,11 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
         bt_cache[key] = (time.time(), out)
         return out
 
+    # 競馬予想サイト(静的ファイル。/keiba/ で開く)
+    from pathlib import Path
+    from fastapi.staticfiles import StaticFiles
+    site = Path(__file__).resolve().parent.parent / "keiba" / "site"
+    if site.is_dir():
+        app.mount("/keiba", StaticFiles(directory=site, html=True), name="keiba")
+
     return app
