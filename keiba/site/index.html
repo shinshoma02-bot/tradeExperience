@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>重賞予想ラボ</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1c2330;--sub:#667085;--line:#e4e7ec;--acc:#1f6feb;--bar:#9db8f0;--hit:#12b76a;--bad:#d92d20;--warn:#fff7e0}
+@media (prefers-color-scheme:dark){:root{--bg:#10141b;--card:#181e28;--ink:#e8ecf3;--sub:#98a2b3;--line:#2a3342;--acc:#6ea8ff;--bar:#35527f;--hit:#32d583;--bad:#f97066;--warn:#2b2614}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif}
+main{max-width:760px;margin:0 auto;padding:16px}
+h1{font-size:22px;margin:8px 0 2px}h2{font-size:17px;margin:0 0 8px}
+.sub{color:var(--sub);font-size:13px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin:14px 0}
+.warn{background:var(--warn);border-color:#e6c200}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:6px 4px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th:first-child,td:first-child{text-align:left}th{color:var(--sub);font-weight:600;font-size:12px}
+.name{text-align:left;white-space:normal}
+select{width:100%;font-size:16px;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
+.row{display:flex;gap:8px;margin-bottom:8px}.row>*{flex:1}
+.bar{position:relative;height:18px;background:var(--line);border-radius:4px;min-width:90px}
+.bar i{position:absolute;left:0;top:0;bottom:0;background:var(--bar);border-radius:4px}
+.bar b{position:relative;font-size:12px;padding-left:6px;line-height:18px}
+.w1{color:var(--hit);font-weight:700}.top{background:rgba(31,111,235,.10)}
+.pill{display:inline-block;font-size:11px;padding:1px 7px;border-radius:99px;background:var(--line);color:var(--sub);margin-left:6px}
+.good{color:var(--hit)}.bad{color:var(--bad)}
+details summary{cursor:pointer;color:var(--acc)}
+</style>
+</head>
+<body>
+<main>
+<h1>重賞予想ラボ</h1>
+<div class="sub" id="meta">読み込み中…</div>
+
+<div class="card warn">
+<b>先に正直な話</b>
+<p style="margin:6px 0 0">競馬は払い戻しの前に約20〜25%が運営に引かれる(控除率)ので、<b>全員が平均的に買うと回収率は75〜80%</b>に落ち着きます。このページのモデルが当たるかどうかより、<b>「その控除を超えられたか」</b>が本当の問題です。下の成績表は、予測する年より前のデータだけで学習して翌年を予測した<b>未来を見ていない検証</b>です。</p>
+</div>
+
+<div class="card">
+<h2>モデルの通信簿</h2>
+<div class="sub" id="evalNote"></div>
+<div style="overflow-x:auto"><table id="evalTable"></table></div>
+<p class="sub" style="margin-top:10px">回収率=毎レースその買い目に100円ずつ賭けたときの、払戻合計÷賭け金。100%を超えないと負けです。<br>レース数が少ない(数百)ので、数%の差は偶然の範囲です。</p>
+<details><summary>用語の説明</summary>
+<ul class="sub">
+<li><b>1位的中</b>: モデルが1番手にした馬が実際に1着だった割合</li>
+<li><b>3着内</b>: 同じ馬が3着以内に入った割合</li>
+<li><b>単勝/複勝</b>: 1着を当てる/3着以内を当てる馬券。払戻は実際のJRA公式の金額</li>
+<li><b>logloss</b>: 勝ち馬にどれだけ高い確率を付けていたか(小さいほど良い)</li>
+<li><b>人気だけ</b>: 単勝人気の順位から過去の勝率を引くだけの基準モデル(=みんなの予想)</li>
+</ul></details>
+</div>
+
+<div class="card">
+<h2>レースを見る</h2>
+<div class="row"><select id="yearSel"></select><select id="gradeSel"><option value="">全グレード</option><option>G1</option><option>G2</option><option>G3</option></select></div>
+<select id="raceSel"></select>
+<div id="raceBox" style="margin-top:12px"></div>
+</div>
+
+<div class="card">
+<h2>データと限界</h2>
+<ul class="sub">
+<li>データ元: JRA公式「レース成績データ」の重賞(平地)の全頭結果と払戻。公開ページを1秒間隔で取得。</li>
+<li>使った情報: 人気・年齢・性別・斤量・馬体重と増減・枠順・騎手と調教師の過去成績・馬の前走(このデータ内)・距離・芝ダ。<b>全部レース前に分かる情報だけ</b>。</li>
+<li>重賞だけなので学習データは少なめ(数千頭分)。調教・血統・厩舎コメント・オッズの動きは入っていません。</li>
+<li>過去の検証は将来の的中を保証しません。馬券はお金を失う前提の娯楽として、失ってもよい額で。</li>
+</ul>
+</div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const pct=(x,d=1)=>(x*100).toFixed(d)+'%';
+let D;
+fetch('data.json').then(r=>r.json()).then(d=>{D=d;init()}).catch(e=>$('meta').textContent='data.json が読めません: '+e);
+function init(){
+  $('meta').textContent=`${D.data_range[0]} 〜 ${D.data_range[1]} の重賞 / 検証: ${D.test_years[0]}〜${D.test_years.at(-1)}年(${D.summary._baseline_fav.races}レース) / 更新 ${D.generated}`;
+  $('evalNote').textContent=`${D.test_years[0]}年以降の各レースで「モデルの1位の馬」に100円ずつ賭け続けた成績`;
+  const names={_baseline_fav:'1番人気を買う'};
+  const order=['_baseline_fav',...Object.keys(D.summary).filter(k=>k!=='_baseline_fav')];
+  const roi=v=>`<td class="${v>=1?'good':'bad'}">${pct(v)}</td>`;
+  $('evalTable').innerHTML='<tr><th>方式</th><th>1位的中</th><th>3着内</th><th>単勝回収</th><th>複勝回収</th><th>logloss</th></tr>'+
+   order.map(k=>{const s=D.summary[k];return `<tr><td class="name">${names[k]||k}</td><td>${pct(s.win_rate)}</td><td>${pct(s.top3_rate)}</td>${roi(s.win_roi)}${roi(s.place_roi)}<td>${s.win_logloss.toFixed(3)}</td></tr>`}).join('');
+  const years=[...new Set(D.races.map(r=>r.date.slice(0,4)))];
+  $('yearSel').innerHTML=years.map(y=>`<option>${y}</option>`).join('');
+  $('yearSel').onchange=$('gradeSel').onchange=fillRaces;
+  $('raceSel').onchange=showRace;
+  fillRaces();
+}
+function fillRaces(){
+  const y=$('yearSel').value,g=$('gradeSel').value;
+  const rs=D.races.filter(r=>r.date.startsWith(y)&&(!g||r.grade===g)).sort((a,b)=>a.date<b.date?1:-1);
+  $('raceSel').innerHTML=rs.map(r=>`<option value="${r.id}">${r.date.slice(5)} ${r.grade} ${r.name}</option>`).join('')||'<option>該当なし</option>';
+  showRace();
+}
+function showRace(){
+  const r=D.races.find(r=>r.id===$('raceSel').value); if(!r){$('raceBox').innerHTML='';return}
+  const hs=[...r.horses].sort((a,b)=>b.pw-a.pw), mx=Math.max(...hs.map(h=>h.pw));
+  const topPick=hs[0], win=r.horses.find(h=>h.place===1);
+  const verdict=topPick.place===1?`<span class="good">モデルの本命が1着</span>`:`<span class="bad">モデルの本命は${topPick.place}着</span>`;
+  $('raceBox').innerHTML=`<div><b>${r.name}</b><span class="pill">${r.grade}</span><span class="pill">${r.ground}${r.dist}m ${r.going}</span></div>
+  <div class="sub">${r.date} / 勝ち馬 ${win.name}(${win.pop}番人気, 単勝${r.win_pay}円) / ${verdict}</div>
+  <div style="overflow-x:auto"><table style="margin-top:8px"><tr><th>馬</th><th>騎手</th><th>人気</th><th style="text-align:left">モデルの勝率</th><th>3着内</th><th>結果</th></tr>`+
+  hs.map((h,i)=>`<tr class="${i===0?'top':''}"><td class="name">${h.num} ${h.name}</td><td>${h.jockey}</td><td>${h.pop}</td>
+   <td style="text-align:left"><div class="bar"><i style="width:${h.pw/mx*100}%"></i><b>${pct(h.pw)}</b></div></td><td>${pct(h.pt,0)}</td>
+   <td class="${h.place===1?'w1':''}">${h.place}着</td></tr>`).join('')+`</table></div>`;
+}
+</script>
+</body>
+</html>
