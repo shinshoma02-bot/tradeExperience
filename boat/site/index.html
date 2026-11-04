@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>丸亀ボート予想ラボ</title>
+<style>
+:root{--bg:#f4f8fb;--card:#fff;--ink:#14212e;--sub:#5f6f7e;--line:#dfe6ec;--acc:#0a7ea4;--bar:#8fcbe0;--hit:#12a15f;--bad:#d92d20;--warn:#fff7e0;--warnline:#e6c200}
+@media (prefers-color-scheme:dark){:root{--bg:#0e151c;--card:#16202a;--ink:#e6edf3;--sub:#93a3b1;--line:#263441;--acc:#4cc2e6;--bar:#2c6479;--hit:#32d583;--bad:#f97066;--warn:#2b2614}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif}
+main{max-width:820px;margin:0 auto;padding:16px}
+h1{font-size:22px;margin:8px 0 2px}h2{font-size:17px;margin:0 0 8px}h3{font-size:15px;margin:14px 0 6px}
+.sub{color:var(--sub);font-size:13px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin:14px 0}
+.warn{background:var(--warn);border-color:var(--warnline)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:6px 5px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th:first-child,td:first-child{text-align:left}#roiTable td:first-child,#llTable td:first-child{white-space:normal;min-width:150px}th{color:var(--sub);font-weight:600;font-size:12px}
+.name{text-align:left;white-space:normal}
+select,input{width:100%;font-size:16px;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
+.row{display:flex;gap:8px;margin-bottom:8px}.row>*{flex:1}
+.bar{position:relative;height:18px;background:var(--line);border-radius:4px;min-width:90px}
+.bar i{position:absolute;left:0;top:0;bottom:0;background:var(--bar);border-radius:4px}
+.bar b{position:relative;font-size:12px;padding-left:6px;line-height:18px}
+.good{color:var(--hit);font-weight:700}.bad{color:var(--bad)}
+.top{background:rgba(10,126,164,.10)}
+details summary{cursor:pointer;color:var(--acc)}
+.tabs{display:flex;gap:6px;margin:12px 0 0;flex-wrap:wrap}.tabs button{flex:1;min-width:76px;padding:9px 4px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;font-size:14px}
+.tabs button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+.hidden{display:none}
+.lane{display:inline-block;width:22px;height:22px;line-height:22px;text-align:center;border-radius:4px;font-weight:700;font-size:13px;border:1px solid #888}
+.l1{background:#fff;color:#000}.l2{background:#000;color:#fff}.l3{background:#e53935;color:#fff;border-color:#e53935}
+.l4{background:#1e63d6;color:#fff;border-color:#1e63d6}.l5{background:#f6d70e;color:#000;border-color:#d7b900}.l6{background:#1faa59;color:#fff;border-color:#1faa59}
+.pill{display:inline-block;font-size:11px;padding:1px 7px;border-radius:99px;background:var(--line);color:var(--sub);margin-left:6px}
+.combo{white-space:nowrap}
+</style>
+</head>
+<body>
+<main>
+<h1>丸亀ボート予想ラボ</h1>
+<div class="sub" id="meta">読み込み中…</div>
+
+<div class="card warn">
+<b>先に正直な話</b>
+<p style="margin:6px 0 0">ボートレースは払い戻しの前に約20〜25%が運営に引かれる(控除率・要確認)ので、<b>みんなが平均的に買うと回収率は75〜80%</b>に落ち着きます。大事なのは「当たるか」より<b>「その控除を超えられるか」</b>。「通信簿」は、<b>予想する期間より前のデータだけで学習して次の期間を当てる</b>、未来を見ていない検証です。予想は参考程度、舟券は失ってもよい額で(20歳以上)。</p>
+</div>
+
+<div class="tabs">
+<button data-t="up" class="on">次の予想</button><button data-t="ev">通信簿</button><button data-t="tr">丸亀の傾向</button><button data-t="pl">選手・モーター</button><button data-t="past">答え合わせ</button>
+</div>
+
+<section id="t-up">
+<div class="card">
+<h2>次の開催の予想</h2>
+<div class="sub" id="upMeta"></div>
+<div class="row" style="margin-top:8px"><select id="upDay"></select><select id="upRace"></select></div>
+<div id="upBox" style="margin-top:12px"></div>
+<details style="margin-top:8px"><summary>見方</summary>
+<ul class="sub">
+<li><b>事前の勝率</b>: 番組表(全国/当地勝率・級別・モーター/ボート2連率・年齢・体重)と、その選手の丸亀での過去成績から出した、1着になる確率(6艇の合計=100%)。</li>
+<li><b>展示後の勝率</b>: 公式の展示タイム(試運転の速さ)を足したモデル。展示は各レース直前(約10〜15分前)に出るので、取れたレースだけ表示します。</li>
+<li><b>期待値</b>: 確率×オッズ。1を超えると「確率の割に払戻が大きい」ように見えますが、<b>オッズが高い穴ほど確率の誤差で大きく見えやすい</b>ので鵜呑みは禁物。この期待値で買って勝てたかは、過去のオッズ(全組合せ)が無料で取れないため検証できていません(前向きに記録中)。</li>
+<li>3連単の確率は 1着→2着→3着 の順に予想を重ねて出しています。</li>
+</ul></details>
+</div>
+</section>
+
+<section id="t-ev" class="hidden">
+<div class="card">
+<h2>モデルの通信簿</h2>
+<div class="sub" id="evalNote"></div>
+<h3>どれだけ勝ち艇に高い確率を付けられたか</h3>
+<div style="overflow-x:auto"><table id="llTable"></table></div>
+<p class="sub">logloss=勝った艇に付けた確率の「悪さ」(小さいほど良い)。「枠番だけ」はコースの有利不利だけの基準、「公式勝率+級別」は番組表の勝率だけを見る基準です。「市場」は勝った艇の単勝オッズから逆算した、みんなが付けていた確率(単勝の控除率を20%と仮定・要確認)。<b>市場のほうがモデルより小さい=市場のほうが賢い</b>のが普通で、直前の気配(展示・風・整備)まで織り込んでいるためです。</p>
+<h3>100円ずつ買い続けたら(回収率)</h3>
+<div style="overflow-x:auto"><table id="roiTable"></table></div>
+<p class="sub">払戻は実際の公式の確定払戻。<b>100%を超えないと負け</b>。「±」は偶然のぶれ(標準誤差の2倍)で、差がこれより小さければ誤差の範囲です。</p>
+<p id="evalVerdict" style="font-weight:600"></p>
+<h3>確率は当たっているか(キャリブレーション)</h3>
+<div style="overflow-x:auto"><table id="calTable"></table></div>
+<p class="sub">「モデルが◯%と言った本命」が実際に何%勝ったか。ズレが小さいほど確率として信用できます。</p>
+</div>
+</section>
+
+<section id="t-tr" class="hidden">
+<div class="card"><h2>丸亀の傾向</h2><div class="sub" id="trNote"></div>
+<h3>コース(枠番)別の成績</h3><div style="overflow-x:auto"><table id="laneT"></table></div>
+<h3>レース番号別: 1号艇が勝つ割合と3連単の配当</h3><div style="overflow-x:auto"><table id="rnT"></table></div>
+<h3>風の強さ別: 1号艇が勝つ割合</h3><table id="windT"></table>
+<h3>波の高さ別: 1号艇が勝つ割合</h3><table id="waveT"></table>
+<h3>風向き別: 1号艇が勝つ割合</h3><table id="dirT"></table>
+<h3>決まり手</h3><table id="kimT"></table>
+<h3>級別の成績</h3><table id="clsT"></table>
+<h3>1号艇が負けたとき、勝つのは?</h3><table id="lostT"></table>
+<p class="sub">風向きは公式の記録(16方位)のまま。丸亀の水面は海水で潮の満ち引きの影響もありますが、潮位は取っていません。</p>
+</div>
+</section>
+
+<section id="t-pl" class="hidden">
+<div class="card"><h2>選手(丸亀での成績)</h2>
+<input id="plQ" placeholder="名前で絞り込み(例: 田頭)">
+<div style="overflow-x:auto;margin-top:8px"><table id="plT"></table></div>
+<p class="sub">この集計期間で丸亀に18走以上した選手。ST=スタートタイミング(平均、小さいほど早い。0.15前後が普通)。1コース勝率は1コースで5走以上のとき。</p></div>
+<div class="card"><h2>モーター(いまの節)</h2><div class="sub" id="moNote"></div>
+<div style="overflow-x:auto"><table id="moT"></table></div>
+<p class="sub">モーター2連率=そのモーターを使った選手の2着以内率(公式、直近の節のもの)。モーターは抽選で変わる運の要素もあり、数字ほど差は出ません。</p></div>
+</section>
+
+<section id="t-past" class="hidden">
+<div class="card"><h2>答え合わせ(過去のレース)</h2>
+<div class="sub">その日より前のデータだけで学習したモデルの予想と、実際の結果を並べます。</div>
+<div class="row" style="margin-top:8px"><select id="paDay"></select><select id="paRace"></select></div>
+<div id="paBox" style="margin-top:12px"></div></div>
+</section>
+
+<p class="sub" style="margin:18px 0">データ元: ボートレース公式の番組表・競走成績(<a href="https://www.boatrace.jp/" style="color:var(--acc)">boatrace.jp</a>、アクセスは1秒に1回以内)。個人の研究用で、舟券の購入を勧めるものではありません。</p>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const pc=(x,d=1)=>x==null?'-':(x*100).toFixed(d)+'%';
+const lane=n=>`<span class="lane l${n}">${n}</span>`;
+const combo=c=>c.split('-').map(lane).join(' ');
+let D=null;
+
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));
+  ['up','ev','tr','pl','past'].forEach(t=>$('t-'+t).classList.toggle('hidden',t!==b.dataset.t));
+});
+
+function raceTable(r,withX){
+  const hasX=withX&&r.boats.some(b=>b.px!=null);
+  const hasR=r.boats.some(b=>b.finish!=null);
+  const maxp=Math.max(...r.boats.map(b=>hasX&&b.px!=null?b.px:b.p));
+  let h=`<div style="overflow-x:auto"><table><tr><th>枠</th><th class="name">選手</th><th>全国</th><th>当地</th><th>モーター</th><th>事前の勝率</th>${hasX?'<th>展示</th><th>展示後の勝率</th>':''}${hasR?'<th>着</th><th>ST</th>':''}${r.win_odds?'<th>単勝</th><th>期待値</th>':''}</tr>`;
+  for(const b of r.boats){
+    const p=hasX&&b.px!=null?b.px:b.p;
+    h+=`<tr class="${p===maxp?'top':''}"><td>${lane(b.lane)}</td><td class="name">${b.name}<span class="pill">${b.cls}</span></td>`
+      +`<td>${b.nat_win.toFixed(2)}</td><td>${b.loc_win.toFixed(2)}</td><td>${b.motor_2r.toFixed(0)}%</td>`
+      +`<td><div class="bar"><i style="width:${Math.min(100,b.p*100*1.6)}%"></i><b>${pc(b.p)}</b></div></td>`;
+    if(hasX) h+=`<td>${b.ex_time!=null?b.ex_time.toFixed(2):'-'}</td><td><div class="bar"><i style="width:${Math.min(100,(b.px||0)*160)}%"></i><b>${b.px!=null?pc(b.px):'-'}</b></div></td>`;
+    if(hasR) h+=`<td class="${b.finish===1?'good':''}">${b.finish==null?'-':(b.finish||'×')}</td><td>${b.st!=null?b.st.toFixed(2):'-'}</td>`;
+    if(r.win_odds){const o=r.win_odds[b.lane];const ev=o?o*p:null;h+=`<td>${o??'-'}</td><td class="${ev>1.0?'good':''}">${ev?ev.toFixed(2):'-'}</td>`}
+    h+='</tr>';
+  }
+  return h+'</table></div>';
+}
+function topCombos(list,title,odds){
+  let h=`<h3>${title}</h3><table><tr><th>3連単</th><th>確率</th>${odds?'<th>オッズ</th><th>期待値</th>':''}</tr>`;
+  for(const t of list.slice(0,6)){
+    const o=odds&&odds[t.c];
+    h+=`<tr><td class="combo">${combo(t.c)}</td><td>${pc(t.p)}</td>${odds?`<td>${o??'-'}</td><td class="${o&&o*t.p>1?'good':''}">${o?(o*t.p).toFixed(2):'-'}</td>`:''}</tr>`;
+  }
+  return h+'</table>';
+}
+function weatherLine(r){
+  const bits=[];
+  if(r.kind)bits.push(r.kind);
+  if(r.close)bits.push('締切 '+r.close);
+  if(r.live&&r.live.weather){const w=r.live.weather;bits.push(`${w.sky} 風${w.wind}m 波${w.wave}cm`)}
+  else if(r.weather)bits.push(`${r.weather} ${r.wind_dir||''}${r.wind}m 波${r.wave}cm`);
+  if(r.kimarite)bits.push('決まり手 '+r.kimarite);
+  if(r.live&&r.live.course_order)bits.push('スタート展示の進入 '+r.live.course_order.join('-'));
+  return `<div class="sub">${bits.join(' / ')}</div>`;
+}
+function showUp(){
+  const day=$('upDay').value, no=+$('upRace').value;
+  const r=D.upcoming.find(x=>x.date===day&&x.race_no===no);
+  if(!r){$('upBox').innerHTML='';return}
+  const hasX=r.top_x!=null;
+  let h=weatherLine(r)+raceTable(r,true);
+  const o=r.ev3?Object.fromEntries((r.ev3||[]).map(e=>[e.c,e.odds])):null;
+  h+=topCombos(r.top,'事前の3連単 上位',null);
+  if(hasX)h+=topCombos(r.top_x,'展示後の3連単 上位',null);
+  if(r.ev3&&r.ev3.length){
+    h+=`<h3>確率×オッズ(期待値)が高い3連単</h3><table><tr><th>3連単</th><th>確率</th><th>オッズ</th><th>期待値</th></tr>`
+      +r.ev3.map(e=>`<tr><td class="combo">${combo(e.c)}</td><td>${pc(e.p)}</td><td>${e.odds}</td><td class="${e.ev>1?'good':''}">${e.ev.toFixed(2)}</td></tr>`).join('')
+      +`</table><p class="sub">確率1%以上の組合せだけ。期待値は確率の誤差に敏感で、1を超えても「得」とは限りません(通信簿タブ参照)。</p>`;
+  }
+  $('upBox').innerHTML=h;
+}
+function fillSel(sel,vals,fmt){sel.innerHTML=vals.map(v=>`<option value="${v}">${fmt?fmt(v):v}</option>`).join('')}
+function initUp(){
+  const days=[...new Set(D.upcoming.map(r=>r.date))];
+  if(!days.length){$('upBox').innerHTML='<p class="sub">いま取れている番組表に、次の丸亀開催のレースはありません(番組表は開催前日の午後に出ます)。</p>';$('upDay').classList.add('hidden');$('upRace').classList.add('hidden');return}
+  fillSel($('upDay'),days);
+  const upd=()=>{fillSel($('upRace'),D.upcoming.filter(r=>r.date===$('upDay').value).map(r=>r.race_no),n=>{const r=D.upcoming.find(x=>x.date===$('upDay').value&&x.race_no===n);return n+'R '+(r.kind||'')+(r.close?' ('+r.close+')':'')});showUp()};
+  $('upDay').onchange=upd;$('upRace').onchange=showUp;upd();
+  const first=D.upcoming[0];
+  $('upMeta').textContent=`番組表の取得: ${D.built} / 直前情報(展示・オッズ): ${D.live_asof||'未取得'} / 最新の結果: ${D.last_result}`;
+}
+
+function tbl(id,head,rows){$(id).innerHTML='<tr>'+head.map(h=>`<th>${h}</th>`).join('')+'</tr>'+rows.map(r=>'<tr>'+r.map((c,i)=>`<td>${c}</td>`).join('')+'</tr>').join('')}
+
+function initEval(){
+  const v=D.validation;
+  $('evalNote').textContent=`検証期間 ${v.from}〜${v.to}(${v.n_races}レース)。学習は常に「その期間より前」だけ(3か月ごとに学習し直し)。`;
+  const L=v.logloss, ex=v.with_exhibition;
+  const rows=Object.entries(L).map(([k,x])=>[k,x.toFixed(4),k==='モデル'?pc(v.top1_acc['モデル']):(k==='枠番だけ'?pc(v.top1_acc['1号艇']):'-')]);
+  if(ex)rows.splice(1,0,['モデル+展示タイム',ex.logloss.toFixed(4),pc(ex.top1_acc)]);
+  if(v.market_logloss)rows.push(['<b>参考: 市場(単勝オッズ)</b>',v.market_logloss.toFixed(4),'-']);
+  tbl('llTable',['予想のしかた','logloss','本命が勝った率'],rows);
+  const roi=(v.roi||[]).map(r=>[r.label,r.n,pc(r.hit),`<span class="${r.roi>=1?'good':''}">${pc(r.roi)}</span> <span class="sub">±${(2*r.se*100).toFixed(0)}</span>`]);
+  tbl('roiTable',['買い方','レース数','的中率','回収率'],roi);
+  let ex2='';
+  if(ex&&ex.roi){const t=ex.roi.filter(r=>/単勝: モデルの本命|3連単: モデル上位5|2連単: モデル上位3/.test(r.label));
+    ex2='展示タイムを足すと: '+t.map(r=>`${r.label.replace('モデル','展示込み')} ${pc(r.roi)}`).join(' / ')+'。';}
+  const best=Math.max(...v.roi.map(r=>r.roi-2*r.se)); const bestAll=v.roi.reduce((a,r)=>r.roi>a.roi?r:a);
+  const lo=v.roi.filter(r=>r.roi-2*r.se>1);
+  $('evalVerdict').innerHTML=lo.length?`控除を超えた可能性のある買い方: ${lo.map(r=>r.label).join('、')}(それでも検証期間が短いと偶然のことがあります)`
+    :`<span class="bad">どの買い方も、誤差を考えると100%を超えたと言える証拠はありません。</span>最高は「${bestAll.label}」の${pc(bestAll.roi)}(±${(2*bestAll.se*100).toFixed(0)})。 ${ex2}`;
+  tbl('calTable',['モデルの本命の確率','レース数','モデルの予想','実際に勝った率'],v.calibration.map(c=>[`${(c.lo*100).toFixed(0)}〜${(c.hi*100).toFixed(0)}%`,c.n,pc(c.pred),pc(c.actual)]));
+}
+
+function initTrend(){
+  const d=D.describe;
+  $('trNote').textContent=`${d.from}〜${d.to}の${d.n_races}レース(丸亀)。`;
+  tbl('laneT',['コース','出走','1着','2着以内','3着以内'],d.lane.map(x=>[lane(x.lane),x.n,pc(x.w1),pc(x.w2),pc(x.w3)]));
+  tbl('rnT',['R','レース数','1号艇が勝つ','3連単の中央値','1万円以上'],d.by_race_no.map(x=>[x.race_no+'R',x.n,pc(x.lane1),Math.round(x.pay3_median).toLocaleString()+'円',pc(x.high)]));
+  tbl('windT',['風','レース数','1号艇が勝つ'],d.by_wind.map(x=>[x.bin,x.n,pc(x.lane1)]));
+  tbl('waveT',['波','レース数','1号艇が勝つ'],d.by_wave.map(x=>[x.bin,x.n,pc(x.lane1)]));
+  tbl('dirT',['風向き','レース数','1号艇が勝つ'],d.by_wind_dir.map(x=>[x.dir,x.n,pc(x.lane1)]));
+  tbl('kimT',['決まり手','レース数','割合'],d.kimarite.map(x=>[x.name,x.n,pc(x.rate)]));
+  tbl('clsT',['級別','出走','1着','3着以内'],d.by_class.map(x=>[x.cls,x.n,pc(x.w1),pc(x.w3)]));
+  tbl('lostT',['勝った艇','割合'],d.lane1_lost_winner.map(x=>[lane(x.lane),pc(x.rate)]));
+}
+function initPl(){
+  const draw=()=>{const q=$('plQ').value.trim();
+    const rows=D.racers.filter(r=>!q||r.name.includes(q)).slice(0,80).map(r=>[`<span class="name">${r.name}</span> <span class="pill">${r.cls}</span> <span class="sub">${r.branch}</span>`,r.n,pc(r.w1),pc(r.w3),r.st?r.st.toFixed(2):'-',r.l1w==null?'-':pc(r.l1w,0)+` (${r.l1n})`,r.nat_win.toFixed(2)]);
+    tbl('plT',['選手','走数','1着率','3着内','平均ST','1コース勝率','全国勝率'],rows)};
+  $('plQ').oninput=draw;draw();
+  $('moNote').textContent=`${D.motors.asof}の節のモーター(2連率の高い順)`;
+  tbl('moT',['モーター','2連率'],D.motors.list.slice(0,15).map(m=>['No.'+m.motor,m.m2r.toFixed(1)+'%']));
+}
+function showPast(){
+  const day=$('paDay').value,no=+$('paRace').value;
+  const r=D.browse.find(x=>x.date===day&&x.race_no===no);if(!r){return}
+  let h=weatherLine(r)+raceTable(r,false);
+  const ok=r['3連単_combo'];
+  h+=topCombos(r.top,'モデルの3連単 上位',null);
+  if(ok){const rank=r.top.findIndex(t=>t.c===ok);h+=`<p>結果: ${combo(ok)} 配当 <b>${Math.round(r['3連単_pay']).toLocaleString()}円</b> / モデル順位: ${rank>=0?(rank+1)+'位':'上位10位圏外'}</p>`}
+  $('paBox').innerHTML=h;
+}
+function initPast(){
+  const days=[...new Set(D.browse.map(r=>r.date))];fillSel($('paDay'),days);
+  const upd=()=>{fillSel($('paRace'),D.browse.filter(r=>r.date===$('paDay').value).map(r=>r.race_no).sort((a,b)=>a-b),n=>n+'R');showPast()};
+  $('paDay').onchange=upd;$('paRace').onchange=showPast;upd();
+}
+fetch('data.json').then(r=>r.json()).then(d=>{D=d;
+  $('meta').textContent=`作成 ${d.built} / 最新の結果 ${d.last_result}`;
+  initUp();initEval();initTrend();initPl();initPast();
+}).catch(e=>{$('meta').textContent='データを読み込めませんでした: '+e});
+</script>
+</body>
+</html>

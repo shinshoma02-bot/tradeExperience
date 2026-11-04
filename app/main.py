@@ -423,5 +423,9 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
     site = Path(__file__).resolve().parent.parent / "keiba" / "site"
     if site.is_dir():
         app.mount("/keiba", StaticFiles(directory=site, html=True), name="keiba")
+    # 丸亀ボート予想サイト(/boat/)
+    boat_site = Path(__file__).resolve().parent.parent / "boat" / "site"
+    if boat_site.is_dir():
+        app.mount("/boat", StaticFiles(directory=boat_site, html=True), name="boat")
 
     return app

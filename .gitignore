@@ -7,3 +7,5 @@ research/data/
 research/_cache/
 keiba/_cache/
 !keiba/data/
+boat/_cache/
+!boat/data/
