@@ -22,6 +22,7 @@ from bs4 import BeautifulSoup
 from keiba.scrape import BASE, HERE, UA, parse_scope
 
 ROWS = HERE / "_cache" / "rows"
+TODAY = time.strftime("%Y%m%d", time.gmtime(time.time() + 9 * 3600))  # 日本時間の今日
 OUTDIR = HERE / "data" / "all"
 START = "pw01skl00999999/B3"  # 「過去レース結果検索」の最新月(JRAトップ→レース結果から辿れるリンク)
 _last = 0.0
@@ -72,8 +73,26 @@ def day_rows(cname: str) -> list[dict]:
     return out
 
 
+def done_days() -> set[str]:
+    """コミット済みCSVにすでにある開催日(YYYYMMDD+場コード)。使い捨てのコンテナでも取り直さないため。"""
+    done = set()
+    for f in OUTDIR.glob("*.csv.gz"):
+        with gzip.open(f, "rt", encoding="utf-8") as fh:
+            for row in csv.DictReader(fh):
+                m = re.match(r"(\d{4})-(\d{4})-(\d{2})-", row["race_id"])
+                if m:
+                    done.add(m[1] + m[2] + m[3])
+    return done
+
+
+def day_key(cname: str) -> str:
+    m = re.search(r"pw01srl10(\d{2})\d{8}(\d{8})/", cname)  # 場コード2桁 + 年回日 + YYYYMMDD
+    return m[2] + m[1] if m else cname
+
+
 def crawl(stop_year: int, start_year: int = 9999) -> None:
     ROWS.mkdir(parents=True, exist_ok=True)
+    done = done_days()
     month = post("/JRADB/accessS.html", START)
     n_new = 0
     while month:
@@ -88,11 +107,12 @@ def crawl(stop_year: int, start_year: int = 9999) -> None:
         for c in dict.fromkeys(days):
             # cname の形: pw01srl10<場2桁><年4桁><回2桁><日2桁><YYYYMMDD>/<チェックサム>
             date = re.search(r"(\d{8})/[0-9A-F]{2}$", c)
-            if date and date[1][:4] == str(y) and int(date[1][4:6]) == mth:
+            # 今日の分は途中(未終了レースあり)かもしれないので、前日までだけ取る
+            if date and date[1][:4] == str(y) and int(date[1][4:6]) == mth and date[1] < TODAY:
                 todo.append((date[1], c))
         for date, c in todo:
             f = ROWS / (c.replace("/", "_") + ".json")
-            if f.exists():
+            if f.exists() or day_key(c) in done:
                 continue
             rows = day_rows(c)
             f.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
@@ -105,14 +125,27 @@ def crawl(stop_year: int, start_year: int = 9999) -> None:
 
 def build() -> None:
     OUTDIR.mkdir(parents=True, exist_ok=True)
-    by_year: dict[str, list[dict]] = {}
-    for f in sorted(ROWS.glob("*.json")):
+    by_year: dict[str, dict[tuple, dict]] = {}
+    for f in sorted(OUTDIR.glob("*.csv.gz")):  # 既存分
+        with gzip.open(f, "rt", encoding="utf-8") as fh:
+            for r in csv.DictReader(fh):
+                for k in ("place", "num", "age", "race_no", "dist", "pop", "win_pay", "place_pay"):
+                    r[k] = int(float(r[k])) if r.get(k) not in (None, "") else 0
+                for k in ("weight", "last3f", "first_corner", "bw", "bw_diff"):
+                    r[k] = float(r[k]) if r.get(k) not in (None, "") else None
+                by_year.setdefault(r["date"][:4], {})[(r["race_id"], r["num"])] = r
+    n_old = sum(len(v) for v in by_year.values())
+    for f in sorted(ROWS.glob("*.json")):  # 新規分
         for r in json.loads(f.read_text(encoding="utf-8")):
-            by_year.setdefault(r["date"][:4], []).append(r)
-    for y, rows in sorted(by_year.items()):
+            by_year.setdefault(r["date"][:4], {})[(r["race_id"], r["num"])] = r
+    print("既存", n_old, "行 →", sum(len(v) for v in by_year.values()), "行")
+    for y, d in sorted(by_year.items()):
+        rows = list(d.values())
         rows.sort(key=lambda r: (r["date"], r["venue"], r["race_no"], r["place"] or 99, r["num"]))
         out = OUTDIR / f"{y}.csv.gz"
-        with gzip.open(out, "wt", newline="", encoding="utf-8") as fh:
+        import io
+        with open(out, "wb") as raw, gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as gz, \
+                io.TextIOWrapper(gz, newline="", encoding="utf-8") as fh:  # mtime固定=中身が同じならgit差分なし
             w = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
             w.writeheader()
             w.writerows(rows)

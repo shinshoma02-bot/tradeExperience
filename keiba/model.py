@@ -264,7 +264,7 @@ def predict_upcoming() -> None:
     from keiba.upcoming import fetch
     up = pd.DataFrame(fetch())
     if up.empty:
-        print("出馬表が取れませんでした")
+        print("出馬表が取れませんでした(木曜16時ごろまでは空。予想は更新しません)")
         return
     hist = load()
     up["date"] = pd.to_datetime(up["date"])
@@ -311,7 +311,9 @@ def predict_upcoming() -> None:
     OUT_UP.write_text(json.dumps(dict(
         generated=pd.Timestamp.now(tz="Asia/Tokyo").strftime("%Y-%m-%d %H:%M"), races=races,
     ), ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    print("今週の予想:", len(races), "レース", len(out), "頭 →", OUT_UP)
+    from keiba import forward
+    n = forward.record(races)  # 発走前のレースだけ、予想とオッズを記録(後で答え合わせ)
+    print("今週の予想:", len(races), "レース", len(out), "頭 →", OUT_UP, f"/ 前向き記録 {n}レース")
 
 
 def main() -> None:
