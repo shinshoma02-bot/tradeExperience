@@ -59,7 +59,11 @@ def num(s: str, default=None):
 
 
 def parse_race(html: str, year: int, rid: str, grade: str, name: str) -> tuple[list[dict], dict]:
-    soup = BeautifulSoup(html, "lxml")
+    return parse_scope(BeautifulSoup(html, "lxml"), year, rid, grade, name)
+
+
+def parse_scope(soup, year: int, rid: str, grade: str, name: str) -> tuple[list[dict], dict]:
+    """soup はページ全体でも、1レース分のブロック(div.race_result_unit)でもよい。"""
     cap = soup.select_one("div.date_line")
     date_txt = cap.select_one(".date").get_text(" ", strip=True) if cap else ""
     m = re.search(r"(\d+)年(\d+)月(\d+)日", date_txt)
@@ -74,11 +78,14 @@ def parse_race(html: str, year: int, rid: str, grade: str, name: str) -> tuple[l
     rtitle = soup.select_one("span.race_name")
     cond = soup.select_one("div.type .category")
     wt = soup.select_one("div.type .weight")
+    klass = soup.select_one("div.type .class")
+    kai = re.search(r"(\d+)回(\D+?)(\d+)日", date_txt)
     meta = dict(
-        race_id=f"{year}-{rid}", date=date, grade=grade,
+        venue=kai[2] if kai else "", race_id=f"{year}-{rid}", date=date, grade=grade,
         race=(rtitle.get_text("", strip=True) if rtitle else name),
         ground=ground, going=going, dist=int(num(dist[1], 0)) if dist else 0,
         cond=cond.get_text(strip=True) if cond else "", wt_rule=wt.get_text(strip=True) if wt else "",
+        klass=klass.get_text(strip=True) if klass else "",
     )
     rows = []
     for tr in soup.select("table.basic.narrow-xy tbody tr"):

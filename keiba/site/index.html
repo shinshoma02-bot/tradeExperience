@@ -3,17 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>重賞予想ラボ</title>
+<title>競馬予想ラボ</title>
 <style>
-:root{--bg:#f6f7f9;--card:#fff;--ink:#1c2330;--sub:#667085;--line:#e4e7ec;--acc:#1f6feb;--bar:#9db8f0;--hit:#12b76a;--bad:#d92d20;--warn:#fff7e0}
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1c2330;--sub:#667085;--line:#e4e7ec;--acc:#1f6feb;--bar:#9db8f0;--hit:#12b76a;--bad:#d92d20;--warn:#fff7e0;--warnline:#e6c200}
 @media (prefers-color-scheme:dark){:root{--bg:#10141b;--card:#181e28;--ink:#e8ecf3;--sub:#98a2b3;--line:#2a3342;--acc:#6ea8ff;--bar:#35527f;--hit:#32d583;--bad:#f97066;--warn:#2b2614}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif}
-main{max-width:760px;margin:0 auto;padding:16px}
+main{max-width:780px;margin:0 auto;padding:16px}
 h1{font-size:22px;margin:8px 0 2px}h2{font-size:17px;margin:0 0 8px}
 .sub{color:var(--sub);font-size:13px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin:14px 0}
-.warn{background:var(--warn);border-color:#e6c200}
+.warn{background:var(--warn);border-color:var(--warnline)}
 table{width:100%;border-collapse:collapse;font-size:14px}
 th,td{padding:6px 4px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
 th:first-child,td:first-child{text-align:left}th{color:var(--sub);font-weight:600;font-size:12px}
@@ -27,24 +27,47 @@ select{width:100%;font-size:16px;padding:10px;border-radius:8px;border:1px solid
 .pill{display:inline-block;font-size:11px;padding:1px 7px;border-radius:99px;background:var(--line);color:var(--sub);margin-left:6px}
 .good{color:var(--hit)}.bad{color:var(--bad)}
 details summary{cursor:pointer;color:var(--acc)}
+.tabs{display:flex;gap:6px;margin:12px 0 0}.tabs button{flex:1;padding:9px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;font-size:14px}
+.tabs button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+.hidden{display:none}
 </style>
 </head>
 <body>
 <main>
-<h1>重賞予想ラボ</h1>
+<h1>競馬予想ラボ</h1>
 <div class="sub" id="meta">読み込み中…</div>
 
 <div class="card warn">
 <b>先に正直な話</b>
-<p style="margin:6px 0 0">競馬は払い戻しの前に約20〜25%が運営に引かれる(控除率)ので、<b>全員が平均的に買うと回収率は75〜80%</b>に落ち着きます。このページのモデルが当たるかどうかより、<b>「その控除を超えられたか」</b>が本当の問題です。下の成績表は、予測する年より前のデータだけで学習して翌年を予測した<b>未来を見ていない検証</b>です。</p>
+<p style="margin:6px 0 0">競馬は払い戻しの前に約20〜25%が運営に引かれる(控除率)ので、<b>全員が平均的に買うと回収率は75〜80%</b>に落ち着きます。大事なのは「当たるか」より<b>「その控除を超えられるか」</b>。「通信簿」は、予測する年より前のデータだけで学習して翌年を当てる<b>未来を見ていない検証</b>です。予想は参考程度、馬券は失ってもよい額で。</p>
 </div>
 
+<div class="tabs"><button data-t="up" class="on">今週の予想</button><button data-t="ev">通信簿</button><button data-t="past">過去レース</button></div>
+
+<section id="t-up">
+<div class="card">
+<h2>今週の予想</h2>
+<div class="sub" id="upMeta"></div>
+<div class="row" style="margin-top:8px"><select id="upDay"></select><select id="upVenue"></select></div>
+<select id="upRace"></select>
+<div id="upBox" style="margin-top:12px"></div>
+<details style="margin-top:8px"><summary>見方</summary>
+<ul class="sub">
+<li><b>モデルの勝率</b>: 人気・オッズ・馬の過去成績・騎手・斤量・馬体重などから出した、その馬が1着になる確率(レース内の合計=100%)</li>
+<li><b>期待値</b>: 勝率×単勝オッズ。1を超えると「確率の割に払い戻しが大きい」ように見えます。ただし<b>検証では、これで買って控除を超えられた証拠は出ていません</b>(オッズが高い穴馬ほど、モデルの誤差で期待値が大きく見えやすい)</li>
+<li>馬体重・オッズは発表後に反映。出馬表は木曜夕方、オッズは発売開始後(金・土)に出ます。オッズが無いレースは「人気なし」モデルで予想し、期待値は出しません</li>
+<li>予想の更新は手動(下の「更新のしかた」)。作成時刻が古ければ今週のものではありません</li>
+</ul></details>
+</div>
+</section>
+
+<section id="t-ev" class="hidden">
 <div class="card">
 <h2>モデルの通信簿</h2>
 <div class="sub" id="evalNote"></div>
 <div style="overflow-x:auto"><table id="evalTable"></table></div>
-<p class="sub" style="margin-top:10px">回収率=毎レースその買い目に100円ずつ賭けたときの、払戻合計÷賭け金。100%を超えないと負けです。<br>レース数が少ない(数百)ので、数%の差は偶然の範囲です。</p>
-<p class="sub"><b>「独自(人気なし)」の回収率が高く見えるのは、たぶんまぐれ。</b>的中率19%で当たると十数倍つく穴狙いなので、624レースでも回収率は±25%前後ぶれます(約88%は、100%未満と区別できない)。人気を使うモデルは人気だけの基準とほぼ同じ成績で、<b>みんなの予想に上乗せできた証拠は出ていません</b>。</p>
+<p class="sub" style="margin-top:10px">回収率=毎レースその買い目に100円ずつ賭けたときの、払戻合計÷賭け金。<b>100%を超えないと負け</b>です。「±」は偶然のぶれ(標準誤差)で、差がこれより小さければ誤差の範囲です。</p>
+<p class="sub" id="evalVerdict"></p>
 <details><summary>用語の説明</summary>
 <ul class="sub">
 <li><b>1位的中</b>: モデルが1番手にした馬が実際に1着だった割合</li>
@@ -54,47 +77,108 @@ details summary{cursor:pointer;color:var(--acc)}
 <li><b>人気だけ</b>: 単勝人気の順位から過去の勝率を引くだけの基準モデル(=みんなの予想)</li>
 </ul></details>
 </div>
-
 <div class="card">
-<h2>レースを見る</h2>
-<div class="row"><select id="yearSel"></select><select id="gradeSel"><option value="">全グレード</option><option>G1</option><option>G2</option><option>G3</option></select></div>
+<h2>クラス別</h2>
+<div class="sub">最良モデルの本命 と 1番人気 を、レースの種類ごとに比べたもの(区分が多いほど、偶然よく見える所も出ます)</div>
+<div style="overflow-x:auto"><table id="classTable"></table></div>
+</div>
+</section>
+
+<section id="t-past" class="hidden">
+<div class="card">
+<h2>過去のレースを見る</h2>
+<div class="sub">重賞は検証期間ぶんすべて、それ以外は直近ぶんだけ入っています</div>
+<div class="row" style="margin-top:8px"><select id="yearSel"></select><select id="gradeSel"><option value="">全レース</option><option value="G">重賞だけ</option><option>G1</option><option>G2</option><option>G3</option></select></div>
 <select id="raceSel"></select>
 <div id="raceBox" style="margin-top:12px"></div>
 </div>
+</section>
 
 <div class="card">
 <h2>データと限界</h2>
 <ul class="sub">
-<li>データ元: JRA公式「レース成績データ」の重賞(平地)の全頭結果と払戻。公開ページを1秒間隔で取得。</li>
-<li>使った情報: 人気・年齢・性別・斤量・馬体重と増減・枠順・騎手と調教師の過去成績・馬の前走(このデータ内)・距離・芝ダ。<b>全部レース前に分かる情報だけ</b>。</li>
-<li>重賞だけなので学習データは少なめ(数千頭分)。調教・血統・厩舎コメント・オッズの動きは入っていません。</li>
-<li>過去の検証は将来の的中を保証しません。馬券はお金を失う前提の娯楽として、失ってもよい額で。</li>
+<li>データ元: JRA公式のレース結果・出馬表(公開ページを低頻度で取得)。平地の全レース。障害は対象外。</li>
+<li>使った情報: 人気・年齢・性別・斤量・馬体重と増減・枠順・騎手と調教師の過去成績・馬の前走成績・クラス・距離・芝ダ。<b>全部レース前に分かる情報だけ</b>。</li>
+<li>入っていない情報: 調教・血統・厩舎コメント・馬場や展開・オッズの動き・海外/地方での成績。</li>
+<li>過去の検証は将来の的中を保証しません。</li>
 </ul>
+<details><summary>更新のしかた(作った人向け)</summary>
+<pre class="sub" style="white-space:pre-wrap">python -m keiba.model upcoming   # 今週の出馬表を取って予想(upcoming.json)
+python -m keiba.scrape_all 2016  # 新しい結果を追加取得(取得済みは飛ばす)
+python -m keiba.model            # 検証をやり直す(data.json)
+→ コミットしてFlyで再デプロイ</pre></details>
 </div>
 </main>
 <script>
 const $=id=>document.getElementById(id);
 const pct=(x,d=1)=>(x*100).toFixed(d)+'%';
-let D;
-fetch('data.json').then(r=>r.json()).then(d=>{D=d;init()}).catch(e=>$('meta').textContent='data.json が読めません: '+e);
+const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+let D,U;
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));
+  ['up','ev','past'].forEach(t=>$('t-'+t).classList.toggle('hidden',t!==b.dataset.t));
+});
+Promise.all([fetch('data.json').then(r=>r.json()),fetch('upcoming.json').then(r=>r.ok?r.json():null).catch(()=>null)])
+ .then(([d,u])=>{D=d;U=u;init()}).catch(e=>$('meta').textContent='データが読めません: '+e);
+
 function init(){
-  $('meta').textContent=`${D.data_range[0]} 〜 ${D.data_range[1]} の重賞 / 検証: ${D.test_years[0]}〜${D.test_years.at(-1)}年(${D.summary._baseline_fav.races}レース) / 更新 ${D.generated}`;
+  $('meta').textContent=`${D.data_range[0]} 〜 ${D.data_range[1]} / ${D.n_races.toLocaleString()}レース・${D.n_rows.toLocaleString()}頭 / 検証 ${D.test_years[0]}〜${D.test_years.at(-1)}年(${D.summary._baseline_fav.races.toLocaleString()}レース)`;
+  evalInit(); pastInit(); upInit();
+}
+
+/* ---- 今週の予想 ---- */
+function upInit(){
+  if(!U||!U.races.length){$('upBox').innerHTML='<div class="sub">今週の予想データがありません</div>';return}
+  $('upMeta').textContent=`予想の作成: ${U.generated}(日本時間)`;
+  const days=[...new Set(U.races.map(r=>r.date))];
+  $('upDay').innerHTML=days.map(d=>`<option value="${d}">${d.slice(5).replace('-','/')}</option>`).join('');
+  $('upDay').onchange=upVenues; $('upVenue').onchange=upRaces; $('upRace').onchange=upShow;
+  upVenues();
+}
+function upVenues(){
+  const d=$('upDay').value, vs=[...new Set(U.races.filter(r=>r.date===d).map(r=>r.venue))];
+  $('upVenue').innerHTML=vs.map(v=>`<option>${v}</option>`).join(''); upRaces();
+}
+function upRaces(){
+  const rs=U.races.filter(r=>r.date===$('upDay').value&&r.venue===$('upVenue').value).sort((a,b)=>a.no-b.no);
+  $('upRace').innerHTML=rs.map(r=>`<option value="${r.id}">${r.no}R ${r.start||''} ${esc(r.name)}${r.grade?' ['+r.grade+']':''}</option>`).join(''); upShow();
+}
+function upShow(){
+  const r=U.races.find(r=>r.id===$('upRace').value); if(!r){$('upBox').innerHTML='';return}
+  const hs=r.horses, mx=Math.max(...hs.map(h=>h.pw));
+  const note=r.with_odds?'':'<div class="sub bad">オッズ未発表のため「人気なし」モデルです(期待値は出しません)</div>';
+  $('upBox').innerHTML=`<div><b>${esc(r.name)}</b>${r.grade?`<span class="pill">${r.grade}</span>`:''}<span class="pill">${r.klass}</span><span class="pill">${r.ground}${r.dist}m</span><span class="pill">${hs.length}頭</span></div>${note}
+  <div style="overflow-x:auto"><table style="margin-top:8px"><tr><th>馬</th><th>騎手</th><th>人気</th><th>オッズ</th><th style="text-align:left">モデルの勝率</th><th>3着内</th><th>期待値</th></tr>`+
+  hs.map((h,i)=>{const ev=(h.odds&&r.with_odds)?h.pw*h.odds:null;
+   return `<tr class="${i===0?'top':''}"><td class="name">${h.num||''} ${esc(h.name)}</td><td>${esc(h.jockey)}</td><td>${h.pop||'-'}</td><td>${h.odds??'-'}</td>
+   <td style="text-align:left"><div class="bar"><i style="width:${h.pw/mx*100}%"></i><b>${pct(h.pw)}</b></div></td><td>${pct(h.pt,0)}</td>
+   <td class="${ev>=1?'good':''}">${ev==null?'-':ev.toFixed(2)}</td></tr>`}).join('')+`</table></div>`;
+}
+
+/* ---- 通信簿 ---- */
+function evalInit(){
   $('evalNote').textContent=`${D.test_years[0]}年以降の各レースで「モデルの1位の馬」に100円ずつ賭け続けた成績`;
   const names={_baseline_fav:'1番人気を買う'};
   const order=['_baseline_fav',...Object.keys(D.summary).filter(k=>k!=='_baseline_fav')];
   const roi=v=>`<td class="${v>=1?'good':'bad'}">${pct(v)}</td>`;
-  $('evalTable').innerHTML='<tr><th>方式</th><th>1位的中</th><th>3着内</th><th>単勝回収</th><th>複勝回収</th><th>logloss</th></tr>'+
-   order.map(k=>{const s=D.summary[k];return `<tr><td class="name">${names[k]||k}</td><td>${pct(s.win_rate)}</td><td>${pct(s.top3_rate)}</td>${roi(s.win_roi)}${roi(s.place_roi)}<td>${s.win_logloss==null?'-':s.win_logloss.toFixed(3)}</td></tr>`}).join('');
-  const years=[...new Set(D.races.map(r=>r.date.slice(0,4)))];
+  $('evalTable').innerHTML='<tr><th>方式</th><th>1位的中</th><th>3着内</th><th>単勝回収</th><th>±</th><th>複勝回収</th><th>logloss</th></tr>'+
+   order.map(k=>{const s=D.summary[k];return `<tr><td class="name">${names[k]||k}</td><td>${pct(s.win_rate)}</td><td>${pct(s.top3_rate)}</td>${roi(s.win_roi)}<td class="sub">${pct(s.win_roi_se,0)}</td>${roi(s.place_roi)}<td>${s.win_logloss==null?'-':s.win_logloss.toFixed(3)}</td></tr>`}).join('');
+  const b=D.summary[D.best], f=D.summary._baseline_fav;
+  $('evalVerdict').innerHTML=`最良モデル(${D.best})は単勝${pct(b.win_roi)}、1番人気を買うと${pct(f.win_roi)}。差は${((b.win_roi-f.win_roi)*100).toFixed(1)}ポイントで、偶然のぶれ(±${pct(b.win_roi_se,0)})と比べて${Math.abs(b.win_roi-f.win_roi)>2*b.win_roi_se?'<b>目立つ差</b>です':'<b>誤差の範囲</b>です'}。${b.win_roi<1&&f.win_roi<1?'どちらも100%を下回っています。':''}`;
+  $('classTable').innerHTML='<tr><th>クラス</th><th>レース数</th><th>本命 的中</th><th>単勝</th><th>複勝</th><th>1番人気 単勝</th><th>複勝</th></tr>'+
+   Object.entries(D.by_class).map(([c,v])=>`<tr><td>${c}</td><td>${v.model.races.toLocaleString()}</td><td>${pct(v.model.win_rate)}</td><td class="${v.model.win_roi>=1?'good':'bad'}">${pct(v.model.win_roi,0)}</td><td class="${v.model.place_roi>=1?'good':'bad'}">${pct(v.model.place_roi,0)}</td><td class="${v.fav.win_roi>=1?'good':'bad'}">${pct(v.fav.win_roi,0)}</td><td class="${v.fav.place_roi>=1?'good':'bad'}">${pct(v.fav.place_roi,0)}</td></tr>`).join('');
+}
+
+/* ---- 過去レース ---- */
+function pastInit(){
+  const years=[...new Set(D.races.map(r=>r.date.slice(0,4)))].sort().reverse();
   $('yearSel').innerHTML=years.map(y=>`<option>${y}</option>`).join('');
-  $('yearSel').onchange=$('gradeSel').onchange=fillRaces;
-  $('raceSel').onchange=showRace;
-  fillRaces();
+  $('yearSel').onchange=$('gradeSel').onchange=fillRaces; $('raceSel').onchange=showRace; fillRaces();
 }
 function fillRaces(){
   const y=$('yearSel').value,g=$('gradeSel').value;
-  const rs=D.races.filter(r=>r.date.startsWith(y)&&(!g||r.grade===g)).sort((a,b)=>a.date<b.date?1:-1);
-  $('raceSel').innerHTML=rs.map(r=>`<option value="${r.id}">${r.date.slice(5)} ${r.grade} ${r.name}</option>`).join('')||'<option>該当なし</option>';
+  const rs=D.races.filter(r=>r.date.startsWith(y)&&(!g||(g==='G'?r.grade:r.grade===g)));
+  $('raceSel').innerHTML=rs.map(r=>`<option value="${r.id}">${r.date.slice(5)} ${r.venue}${r.no}R ${r.grade?r.grade+' ':''}${esc(r.name)}</option>`).join('')||'<option>該当なし</option>';
   showRace();
 }
 function showRace(){
@@ -102,10 +186,10 @@ function showRace(){
   const hs=[...r.horses].sort((a,b)=>b.pw-a.pw), mx=Math.max(...hs.map(h=>h.pw));
   const topPick=hs[0], win=r.horses.find(h=>h.place===1);
   const verdict=topPick.place===1?`<span class="good">モデルの本命が1着</span>`:`<span class="bad">モデルの本命は${topPick.place}着</span>`;
-  $('raceBox').innerHTML=`<div><b>${r.name}</b><span class="pill">${r.grade}</span><span class="pill">${r.ground}${r.dist}m ${r.going}</span></div>
-  <div class="sub">${r.date} / 勝ち馬 ${win.name}(${win.pop}番人気, 単勝${r.win_pay}円) / ${verdict}</div>
+  $('raceBox').innerHTML=`<div><b>${esc(r.name)}</b>${r.grade?`<span class="pill">${r.grade}</span>`:''}<span class="pill">${r.klass}</span><span class="pill">${r.ground}${r.dist}m ${r.going}</span></div>
+  <div class="sub">${r.date} ${r.venue}${r.no}R / 勝ち馬 ${esc(win.name)}(${win.pop}番人気, 単勝${r.win_pay}円) / ${verdict}</div>
   <div style="overflow-x:auto"><table style="margin-top:8px"><tr><th>馬</th><th>騎手</th><th>人気</th><th style="text-align:left">モデルの勝率</th><th>3着内</th><th>結果</th></tr>`+
-  hs.map((h,i)=>`<tr class="${i===0?'top':''}"><td class="name">${h.num} ${h.name}</td><td>${h.jockey}</td><td>${h.pop}</td>
+  hs.map((h,i)=>`<tr class="${i===0?'top':''}"><td class="name">${h.num} ${esc(h.name)}</td><td>${esc(h.jockey)}</td><td>${h.pop}</td>
    <td style="text-align:left"><div class="bar"><i style="width:${h.pw/mx*100}%"></i><b>${pct(h.pw)}</b></div></td><td>${pct(h.pt,0)}</td>
    <td class="${h.place===1?'w1':''}">${h.place}着</td></tr>`).join('')+`</table></div>`;
 }
