@@ -208,7 +208,18 @@ def run() -> dict:
     for c, g in T.groupby("cls"):
         if g["race_id"].nunique() >= 200:
             by_class[c] = dict(model=evaluate(g), fav=evaluate(g.assign(pw=g["pop"].astype(float)), asc=True))
-    return dict(df=df, pred=pred, pred3=pred3, summary=summary, by_class=by_class, test_years=test_years)
+    # 「モデルが人気(=みんな)より高く見ている馬」だけを全部買ったら? 払戻は勝った馬の単勝払戻で正確に出せる
+    V = df[te_all].copy()
+    V["ratio"] = pred[BEST][te_all] / pred["人気だけ"][te_all]
+    value = []
+    for k in (1.1, 1.25, 1.5, 2.0, 3.0):
+        b = V[V["ratio"] >= k]
+        r = b["win_pay"] / 100.0
+        value.append(dict(ratio=k, bets=int(len(b)), hit=float(b["win"].mean()), roi=float(r.mean()),
+                          se=float(r.std(ddof=1) / np.sqrt(len(b))),
+                          place_roi=float((b["place_pay"] / 100.0).mean())))
+    return dict(df=df, pred=pred, pred3=pred3, summary=summary, by_class=by_class, value=value,
+                test_years=test_years)
 
 
 def horse_rows(g: pd.DataFrame, **extra) -> list[dict]:
@@ -242,7 +253,7 @@ def build_site(res: dict) -> None:
         generated=pd.Timestamp.today().strftime("%Y-%m-%d"),
         data_range=[df["date"].min().strftime("%Y-%m-%d"), last.strftime("%Y-%m-%d")],
         n_rows=int(len(df)), n_races=int(df["race_id"].nunique()),
-        test_years=res["test_years"], best=BEST, summary=res["summary"], by_class=res["by_class"], races=races,
+        test_years=res["test_years"], best=BEST, summary=res["summary"], by_class=res["by_class"], value=res["value"], races=races,
     )
     OUT.parent.mkdir(exist_ok=True)
     OUT.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
@@ -320,6 +331,9 @@ def main() -> None:
         m, f = v["model"], v["fav"]
         print(f"{c:<10}{m['races']:>6}R  モデル 的中{m['win_rate']:.1%} 単勝{m['win_roi']:.1%} 複勝{m['place_roi']:.1%}"
               f" | 1番人気 的中{f['win_rate']:.1%} 単勝{f['win_roi']:.1%} 複勝{f['place_roi']:.1%}")
+    print("\nモデルが人気より高く見た馬を全部買う(単勝100円ずつ)")
+    for v in res["value"]:
+        print(f"  モデル/人気 >= {v['ratio']:<4} {v['bets']:>6}点 的中{v['hit']:.1%} 単勝回収{v['roi']:.1%}(±{v['se']:.1%}) 複勝回収{v['place_roi']:.1%}")
     build_site(res)
     print("書き出し", OUT, OUT.stat().st_size // 1024, "KB")
 

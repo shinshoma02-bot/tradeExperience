@@ -17,10 +17,11 @@ h1{font-size:22px;margin:8px 0 2px}h2{font-size:17px;margin:0 0 8px}
 table{width:100%;border-collapse:collapse;font-size:14px}
 th,td{padding:6px 4px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
 th:first-child,td:first-child{text-align:left}th{color:var(--sub);font-weight:600;font-size:12px}
-.name{text-align:left;white-space:normal}
+.name{text-align:left;white-space:nowrap}.name small{display:block;color:var(--sub);font-size:11px;line-height:1.2}
+.compact th,.compact td{padding:6px 3px;font-size:13px}
 select{width:100%;font-size:16px;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
 .row{display:flex;gap:8px;margin-bottom:8px}.row>*{flex:1}
-.bar{position:relative;height:18px;background:var(--line);border-radius:4px;min-width:90px}
+.bar{position:relative;height:18px;background:var(--line);border-radius:4px;min-width:56px}
 .bar i{position:absolute;left:0;top:0;bottom:0;background:var(--bar);border-radius:4px}
 .bar b{position:relative;font-size:12px;padding-left:6px;line-height:18px}
 .w1{color:var(--hit);font-weight:700}.top{background:rgba(31,111,235,.10)}
@@ -65,7 +66,7 @@ details summary{cursor:pointer;color:var(--acc)}
 <div class="card">
 <h2>モデルの通信簿</h2>
 <div class="sub" id="evalNote"></div>
-<div style="overflow-x:auto"><table id="evalTable"></table></div>
+<div style="overflow-x:auto"><table id="evalTable" class="compact"></table></div>
 <p class="sub" style="margin-top:10px">回収率=毎レースその買い目に100円ずつ賭けたときの、払戻合計÷賭け金。<b>100%を超えないと負け</b>です。「±」は偶然のぶれ(標準誤差)で、差がこれより小さければ誤差の範囲です。</p>
 <p class="sub" id="evalVerdict"></p>
 <details><summary>用語の説明</summary>
@@ -78,9 +79,15 @@ details summary{cursor:pointer;color:var(--acc)}
 </ul></details>
 </div>
 <div class="card">
+<h2>「期待値が高い馬」を買ったら</h2>
+<div class="sub">モデルの勝率が「人気だけ」の見立ての◯倍以上の馬を、全部100円ずつ単勝で買った場合(上の期待値の検証)</div>
+<div style="overflow-x:auto"><table id="valueTable" class="compact"></table></div>
+<p class="sub" id="valueVerdict"></p>
+</div>
+<div class="card">
 <h2>クラス別</h2>
-<div class="sub">最良モデルの本命 と 1番人気 を、レースの種類ごとに比べたもの(区分が多いほど、偶然よく見える所も出ます)</div>
-<div style="overflow-x:auto"><table id="classTable"></table></div>
+<div class="sub">最良モデルの本命(的中・単勝・複勝)と、1番人気(人気1単・人気1複)を、レースの種類ごとに比べたもの(区分が多いほど、偶然よく見える所も出ます)</div>
+<div style="overflow-x:auto"><table id="classTable" class="compact"></table></div>
 </div>
 </section>
 
@@ -148,10 +155,10 @@ function upShow(){
   const hs=r.horses, mx=Math.max(...hs.map(h=>h.pw));
   const note=r.with_odds?'':'<div class="sub bad">オッズ未発表のため「人気なし」モデルです(期待値は出しません)</div>';
   $('upBox').innerHTML=`<div><b>${esc(r.name)}</b>${r.grade?`<span class="pill">${r.grade}</span>`:''}<span class="pill">${r.klass}</span><span class="pill">${r.ground}${r.dist}m</span><span class="pill">${hs.length}頭</span></div>${note}
-  <div style="overflow-x:auto"><table style="margin-top:8px"><tr><th>馬</th><th>騎手</th><th>人気</th><th>オッズ</th><th style="text-align:left">モデルの勝率</th><th>3着内</th><th>期待値</th></tr>`+
+  <div style="overflow-x:auto"><table class="compact" style="margin-top:8px"><tr><th>馬</th><th>人気</th><th>オッズ</th><th style="text-align:left">モデルの勝率</th><th>期待値</th></tr>`+
   hs.map((h,i)=>{const ev=(h.odds&&r.with_odds)?h.pw*h.odds:null;
-   return `<tr class="${i===0?'top':''}"><td class="name">${h.num||''} ${esc(h.name)}</td><td>${esc(h.jockey)}</td><td>${h.pop||'-'}</td><td>${h.odds??'-'}</td>
-   <td style="text-align:left"><div class="bar"><i style="width:${h.pw/mx*100}%"></i><b>${pct(h.pw)}</b></div></td><td>${pct(h.pt,0)}</td>
+   return `<tr class="${i===0?'top':''}"><td class="name">${h.num||''} ${esc(h.name)}<small>${esc(h.jockey)} ・3着内${pct(h.pt,0)}</small></td><td>${h.pop||'-'}</td><td>${h.odds??'-'}</td>
+   <td style="text-align:left"><div class="bar"><i style="width:${h.pw/mx*100}%"></i><b>${pct(h.pw)}</b></div></td>
    <td class="${ev>=1?'good':''}">${ev==null?'-':ev.toFixed(2)}</td></tr>`}).join('')+`</table></div>`;
 }
 
@@ -164,8 +171,12 @@ function evalInit(){
   $('evalTable').innerHTML='<tr><th>方式</th><th>1位的中</th><th>3着内</th><th>単勝回収</th><th>±</th><th>複勝回収</th><th>logloss</th></tr>'+
    order.map(k=>{const s=D.summary[k];return `<tr><td class="name">${names[k]||k}</td><td>${pct(s.win_rate)}</td><td>${pct(s.top3_rate)}</td>${roi(s.win_roi)}<td class="sub">${pct(s.win_roi_se,0)}</td>${roi(s.place_roi)}<td>${s.win_logloss==null?'-':s.win_logloss.toFixed(3)}</td></tr>`}).join('');
   const b=D.summary[D.best], f=D.summary._baseline_fav;
-  $('evalVerdict').innerHTML=`最良モデル(${D.best})は単勝${pct(b.win_roi)}、1番人気を買うと${pct(f.win_roi)}。差は${((b.win_roi-f.win_roi)*100).toFixed(1)}ポイントで、偶然のぶれ(±${pct(b.win_roi_se,0)})と比べて${Math.abs(b.win_roi-f.win_roi)>2*b.win_roi_se?'<b>目立つ差</b>です':'<b>誤差の範囲</b>です'}。${b.win_roi<1&&f.win_roi<1?'どちらも100%を下回っています。':''}`;
-  $('classTable').innerHTML='<tr><th>クラス</th><th>レース数</th><th>本命 的中</th><th>単勝</th><th>複勝</th><th>1番人気 単勝</th><th>複勝</th></tr>'+
+  $('evalVerdict').innerHTML=`最良モデル(${D.best})は単勝${pct(b.win_roi)}、1番人気を買うと${pct(f.win_roi)}。差は${(Math.abs(b.win_roi-f.win_roi)<0.0005?0:(b.win_roi-f.win_roi)*100).toFixed(1)}ポイントで、偶然のぶれ(±${pct(b.win_roi_se,0)})と比べて${Math.abs(b.win_roi-f.win_roi)>2*b.win_roi_se?'<b>目立つ差</b>です':'<b>誤差の範囲</b>です'}。${b.win_roi<1&&f.win_roi<1?'どちらも100%を下回っています。':''}`;
+  $('valueTable').innerHTML='<tr><th>モデル÷人気</th><th>買った数</th><th>的中</th><th>単勝回収</th><th>±</th><th>複勝回収</th></tr>'+
+   (D.value||[]).map(v=>`<tr><td>${v.ratio}倍以上</td><td>${v.bets.toLocaleString()}</td><td>${pct(v.hit)}</td><td class="${v.roi>=1?'good':'bad'}">${pct(v.roi)}</td><td class="sub">${pct(v.se,0)}</td><td class="${v.place_roi>=1?'good':'bad'}">${pct(v.place_roi)}</td></tr>`).join('');
+  const over=(D.value||[]).filter(v=>v.roi-2*v.se>1);
+  $('valueVerdict').innerHTML=over.length?'<b>誤差を超えて100%を上回る区分があります。</b>ただし区分を見比べているので偶然の可能性も。':'どの区分も、100%を誤差(±)を超えて上回ってはいません。<b>モデルが人気より高く見た馬ほど儲かる、とは言えない</b>結果です。';
+  $('classTable').innerHTML='<tr><th>クラス</th><th>R数</th><th>的中</th><th>単勝</th><th>複勝</th><th>人気1単</th><th>人気1複</th></tr>'+
    Object.entries(D.by_class).map(([c,v])=>`<tr><td>${c}</td><td>${v.model.races.toLocaleString()}</td><td>${pct(v.model.win_rate)}</td><td class="${v.model.win_roi>=1?'good':'bad'}">${pct(v.model.win_roi,0)}</td><td class="${v.model.place_roi>=1?'good':'bad'}">${pct(v.model.place_roi,0)}</td><td class="${v.fav.win_roi>=1?'good':'bad'}">${pct(v.fav.win_roi,0)}</td><td class="${v.fav.place_roi>=1?'good':'bad'}">${pct(v.fav.place_roi,0)}</td></tr>`).join('');
 }
 
@@ -188,9 +199,9 @@ function showRace(){
   const verdict=topPick.place===1?`<span class="good">モデルの本命が1着</span>`:`<span class="bad">モデルの本命は${topPick.place}着</span>`;
   $('raceBox').innerHTML=`<div><b>${esc(r.name)}</b>${r.grade?`<span class="pill">${r.grade}</span>`:''}<span class="pill">${r.klass}</span><span class="pill">${r.ground}${r.dist}m ${r.going}</span></div>
   <div class="sub">${r.date} ${r.venue}${r.no}R / 勝ち馬 ${esc(win.name)}(${win.pop}番人気, 単勝${r.win_pay}円) / ${verdict}</div>
-  <div style="overflow-x:auto"><table style="margin-top:8px"><tr><th>馬</th><th>騎手</th><th>人気</th><th style="text-align:left">モデルの勝率</th><th>3着内</th><th>結果</th></tr>`+
-  hs.map((h,i)=>`<tr class="${i===0?'top':''}"><td class="name">${h.num} ${esc(h.name)}</td><td>${esc(h.jockey)}</td><td>${h.pop}</td>
-   <td style="text-align:left"><div class="bar"><i style="width:${h.pw/mx*100}%"></i><b>${pct(h.pw)}</b></div></td><td>${pct(h.pt,0)}</td>
+  <div style="overflow-x:auto"><table class="compact" style="margin-top:8px"><tr><th>馬</th><th>人気</th><th style="text-align:left">モデルの勝率</th><th>結果</th></tr>`+
+  hs.map((h,i)=>`<tr class="${i===0?'top':''}"><td class="name">${h.num} ${esc(h.name)}<small>${esc(h.jockey)} ・3着内${pct(h.pt,0)}</small></td><td>${h.pop}</td>
+   <td style="text-align:left"><div class="bar"><i style="width:${h.pw/mx*100}%"></i><b>${pct(h.pw)}</b></div></td>
    <td class="${h.place===1?'w1':''}">${h.place}着</td></tr>`).join('')+`</table></div>`;
 }
 </script>
