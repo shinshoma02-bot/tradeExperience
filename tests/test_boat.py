@@ -88,3 +88,19 @@ def test_forward_record_and_evaluate(tmp_path, monkeypatch):
     # 単勝: 6号艇は 1/6×8.0=1.33 ≥1.0 → 的中で8.0倍 / 3連単 6-1-3 は 0.05×40=2.0 → 40倍
     assert s["単勝: 期待値1.0以上の艇すべて"]["roi"] == 8.0
     assert s["3連単: 期待値1.5以上の組合せすべて(確率1%以上)"]["roi"] == 40.0
+
+
+def test_forward_blend_strategy(tmp_path, monkeypatch):
+    import pandas as pd
+    from boat import forward
+    monkeypatch.setattr(forward, "LOG", tmp_path / "log.jsonl")
+    # モデルが6号艇を強く推し、市場は6号艇を軽視 → 混合確率×オッズが基準を超えて買われる
+    cards = [{"date": "2026-10-02", "race_no": 1,
+              "boats": [{"lane": l, "p": (0.5 if l == 6 else 0.1)} for l in range(1, 7)],
+              "win_odds": {1: 2.0, 2: 6.0, 3: 8.0, 4: 10.0, 5: 12.0, 6: 14.0}, "ev_all": []}]
+    forward.record(cards)
+    races = pd.DataFrame([{"date": pd.Timestamp("2026-10-02"), "race_no": 1, "win_pay": 1400, "win_lane": 6,
+                           "3連単_combo": "6-1-2", "3連単_pay": 9000}])
+    ev = forward.evaluate(races)
+    s = [x for x in ev["strategies"] if "混合" in x["label"]]
+    assert s and any(x["bets"] >= 1 and x["hits"] >= 1 for x in s)

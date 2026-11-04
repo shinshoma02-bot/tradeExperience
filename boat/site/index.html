@@ -267,7 +267,7 @@ function initOdds(){
   const t=document.createElement('table');t.id='oddsTable2';$('oddsTable').after(t);
   t.innerHTML='<tr><th>期待値(確率×オッズ)で買ったとき</th><th>買い目</th><th>回収率</th></tr>'+rr.concat(br).map(r=>'<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>').join('');
   const d=sr.gain/sr.se;
-  $('oddsVerdict').innerHTML=`モデルとオッズは<b>ほぼ互角</b>(差${sr.gain.toFixed(3)}、誤差±${(2*sr.se).toFixed(3)})。3連単を期待値で選ぶと基準より悪く(穴ほどモデルの誤差で割高)、単勝で混合した確率を使うと良く見える所もありますが、<b>誤差の範囲</b>で、まだ「得」とは言えません。`;
+  $('oddsVerdict').innerHTML=`モデルとオッズは<b>ほぼ互角</b>(差${sr.gain.toFixed(3)}、誤差±${(2*sr.se).toFixed(3)})で、モデルがわずかに上。3連単を期待値で選ぶと基準(人気上位5点)より悪く、穴ほどモデルの誤差で割高になります。単勝で「市場とモデルを混ぜた確率」を使うと、後半の検証で100%を超えた所があります(期待値1.2以上で約150%)が、<b>いくつか基準を試した中の良い結果</b>なので、まだ「得」とは言えません。係数と基準を固定して、これから先のレースで確かめています(下の前向き記録)。`;
 }
 function initFwd(){
   const f=D.forward||{logged:0,settled:0,pending:0,strategies:[]};

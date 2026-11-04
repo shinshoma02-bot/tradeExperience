@@ -15,6 +15,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+# 市場とモデルの混合確率の係数。2025年の前半(過去オッズ収集の前半)だけで決めて固定した。
+# これ以降の記録(前向き)で検証するので、結果を見て変えない。基準の期待値も 1.1 と 1.2 に事前に固定。
+BLEND_MARKET, BLEND_MODEL = 0.5547, 0.5921
+BLEND_THRESHOLDS = (1.1, 1.2)
 LOG = Path(__file__).parent / "data" / "forward_log.jsonl"
 JST = timezone(timedelta(hours=9))
 
@@ -84,6 +88,24 @@ def evaluate(races: pd.DataFrame) -> dict:
             n += 1
             rets.append(x["win_pay"] / 100.0 if int(x["win_lane"]) == int(fav) else 0.0)
     add("単勝: 一番人気(基準)", rets, n)
+    # 単勝: 市場(オッズ)とモデルの混合確率 × オッズ >= 基準(係数・基準は事前に固定)
+    for th in BLEND_THRESHOLDS:
+        rets, n = [], 0
+        for r, x in done:
+            wo = {int(k): v for k, v in r["win_odds"].items()}
+            if len(wo) != 6 or any(v <= 0 for v in wo.values()):
+                continue
+            pm = np.array([1 / wo[l] for l in range(1, 7)])
+            pm /= pm.sum()
+            pmod = np.array([r["p"].get(str(l), r["p"].get(l, 1e-6)) for l in range(1, 7)])
+            sc = BLEND_MARKET * np.log(pm) + BLEND_MODEL * np.log(np.clip(pmod, 1e-6, 1))
+            pb = np.exp(sc - sc.max())
+            pb /= pb.sum()
+            for l in range(1, 7):
+                if pb[l - 1] * wo[l] >= th:
+                    n += 1
+                    rets.append(x["win_pay"] / 100.0 if int(x["win_lane"]) == l else 0.0)
+        add(f"単勝: 混合確率×オッズ{th}以上(事前に決めた基準)", rets, n)
     # 3連単: 確率1%以上で期待値が基準以上の組合せすべて
     for th in (1.0, 1.2, 1.5):
         rets, n = [], 0
