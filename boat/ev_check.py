@@ -37,7 +37,7 @@ def run(P1, T, meta, races) -> dict:
         wl = int(m.at[i, "win_lane"])
         wp = m.at[i, "win_pay"] / 100.0
         p = P1[i]
-        inv = np.array([1 / od["win"].get(l, np.inf) for l in range(1, 7)])
+        inv = np.array([1 / od["win"][l] if od["win"].get(l, 0) > 0 else 0.0 for l in range(1, 7)])
         PM[n] = inv / inv.sum()
         # 単勝: 期待値 >= th の艇すべて
         for th in (1.0, 1.1, 1.2, 1.5):
@@ -45,7 +45,7 @@ def run(P1, T, meta, races) -> dict:
                 o = od["win"].get(l)
                 if o and p[l - 1] * o >= th:
                     add(f"単勝: 期待値{th}以上の艇すべて", wp if wl == l else 0.0)
-        o_fav = min(od["win"], key=lambda k: od["win"][k])
+        o_fav = min((k for k in od["win"] if od["win"][k] > 0), key=lambda k: od["win"][k])
         add("単勝: 一番人気(基準)", wp if wl == o_fav else 0.0)
         # 3連単: 確率1%以上で期待値が基準以上 / 期待値上位k点
         c3, p3 = m.at[i, "3連単_combo"], m.at[i, "3連単_pay"] / 100.0
@@ -64,7 +64,7 @@ def run(P1, T, meta, races) -> dict:
             if len(sel) == k:
                 add(f"3連単: 期待値の高い上位{k}点", p3 if c3 in sel else 0.0, cost=k)
         # 基準: 人気上位5点(オッズの低い順)
-        fav5 = [k for k, _ in sorted(od["o3"].items(), key=lambda x: x[1])[:5]]
+        fav5 = [k for k, v in sorted(((k, v) for k, v in od["o3"].items() if v > 0), key=lambda x: x[1])[:5]]
         add("3連単: 人気上位5点(基準)", p3 if c3 in fav5 else 0.0, cost=5)
 
     res = []
@@ -93,4 +93,33 @@ def run(P1, T, meta, races) -> dict:
     out["blend"] = {"coef_market": float(w[0]), "coef_model": float(w[1]),
                     "logloss_market": ll(PM, te), "logloss_model": ll(Pm / Pm.sum(1, keepdims=True), te),
                     "logloss_blend": ll(pb, te), "n_test": int(len(te))}
+
+    # 同じレースでの市場(単勝オッズの逆数を正規化)とモデルの比較。控除率の仮定は要らない
+    def _w(i):
+        return odds[(str(m.at[i, "date"].date()), int(m.at[i, "race_no"]))]["win"]
+    ii = np.array([n for n, i in enumerate(rows) if len(_w(i)) == 6 and all(v > 0 for v in _w(i).values())])
+    ar = np.arange(len(ii))
+    Pn = Pm / Pm.sum(1, keepdims=True)
+    dgain = np.log(Pn[ii][ar, y[ii]]) - np.log(PM[ii][ar, y[ii]])
+    out["same_race"] = {"n": int(len(ii)), "logloss_market": float(-np.mean(np.log(PM[ii][ar, y[ii]]))),
+                        "logloss_model": float(-np.mean(np.log(Pn[ii][ar, y[ii]]))),
+                        "gain": float(dgain.mean()), "se": float(dgain.std(ddof=1) / np.sqrt(len(ii)))}
+    out["takeout_win"] = float(1 - 1 / np.mean([sum(1 / v for v in _w(rows[k]).values()) for k in ii]))
+
+    # 混合確率(前半で係数を決め、後半だけで評価)での期待値買い: 確率×オッズ >= th の艇に単勝
+    wl = m["win_lane"].values[rows].astype(int)
+    wpay = m["win_pay"].values[rows] / 100.0
+    res2 = []
+    for th in (1.0, 1.1, 1.2):
+        rets = []
+        for idx in te:
+            for l in range(1, 7):
+                o = _w(rows[idx]).get(l, 0)
+                if o > 0 and pb[idx, l - 1] * o >= th:
+                    rets.append(wpay[idx] if wl[idx] == l else 0.0)
+        if len(rets) > 30:
+            r = np.array(rets)
+            res2.append({"label": f"単勝: 混合確率×オッズ{th}以上(後半のみ)", "bets": len(r), "hits": int((r > 0).sum()),
+                         "roi": float(r.mean()), "se": float(r.std(ddof=1) / np.sqrt(len(r)))})
+    out["blend_roi"] = res2
     return out

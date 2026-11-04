@@ -16,7 +16,7 @@ h1{font-size:22px;margin:8px 0 2px}h2{font-size:17px;margin:0 0 8px}h3{font-size
 .warn{background:var(--warn);border-color:var(--warnline)}
 table{width:100%;border-collapse:collapse;font-size:15px}
 th,td{padding:6px 5px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
-th:first-child,td:first-child{text-align:left}#roiTable td:first-child,#llTable td:first-child{white-space:normal;min-width:150px}th{color:var(--sub);font-weight:600;font-size:12px}
+th:first-child,td:first-child{text-align:left}#roiTable td:first-child,#llTable td:first-child,#oddsTable td:first-child,#oddsTable2 td:first-child,#fwTable td:first-child{white-space:normal;min-width:150px}#oddsTable td,#oddsTable2 td{white-space:normal}th{color:var(--sub);font-weight:600;font-size:12px}
 .name{text-align:left;white-space:normal}
 select,input{width:100%;font-size:16px;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
 .row{display:flex;gap:8px;margin-bottom:8px}.row>*{flex:1}
@@ -89,7 +89,11 @@ details.race[open]{border-color:var(--acc)}
 <div class="sub" id="evalNote"></div>
 <h3>どれだけ勝ち艇に高い確率を付けられたか</h3>
 <div style="overflow-x:auto"><table id="llTable"></table></div>
-<p class="sub">logloss=勝った艇に付けた確率の「悪さ」(小さいほど良い)。「枠番だけ」はコースの有利不利だけの基準、「公式勝率+級別」は番組表の勝率だけを見る基準です。「市場」は勝った艇の単勝オッズから逆算した、みんなが付けていた確率(単勝の控除率を20%と仮定・要確認)。<b>市場のほうがモデルより小さい=市場のほうが賢い</b>のが普通で、直前の気配(展示・風・整備)まで織り込んでいるためです。</p>
+<p class="sub">logloss=勝った艇に付けた確率の「悪さ」(小さいほど良い)。「枠番だけ」はコースの有利不利だけの基準、「公式勝率+級別」は番組表の勝率だけを見る基準です。</p>
+<h3>みんなの予想(オッズ)との比べっこ</h3>
+<div class="sub" id="oddsNote"></div>
+<div style="overflow-x:auto"><table id="oddsTable"></table></div>
+<p id="oddsVerdict" class="sub"></p>
 <h3>100円ずつ買い続けたら(回収率)</h3>
 <div style="overflow-x:auto"><table id="roiTable"></table></div>
 <p class="sub">払戻は実際の公式の確定払戻。<b>100%を超えないと負け</b>。「±」は偶然のぶれ(標準誤差の2倍)で、差がこれより小さければ誤差の範囲です。</p>
@@ -237,7 +241,6 @@ function initEval(){
   const L=v.logloss, ex=v.with_exhibition;
   const rows=Object.entries(L).map(([k,x])=>[k,x.toFixed(4),k==='モデル'?pc(v.top1_acc['モデル']):(k==='枠番だけ'?pc(v.top1_acc['1号艇']):'-')]);
   if(ex)rows.splice(1,0,['モデル+展示タイム',ex.logloss.toFixed(4),pc(ex.top1_acc)]);
-  if(v.market_logloss)rows.push(['<b>参考: 市場(単勝オッズ)</b>',v.market_logloss.toFixed(4),'-']);
   tbl('llTable',['予想のしかた','logloss','本命が勝った率'],rows);
   const roi=(v.roi||[]).map(r=>[r.label,r.n,pc(r.hit),`<span class="${r.roi>=1?'good':''}">${pc(r.roi)}</span> <span class="sub">±${(2*r.se*100).toFixed(0)}</span>`]);
   tbl('roiTable',['買い方','レース数','的中率','回収率'],roi);
@@ -251,6 +254,21 @@ function initEval(){
   tbl('calTable',['モデルの本命の確率','レース数','モデルの予想','実際に勝った率'],v.calibration.map(c=>[`${(c.lo*100).toFixed(0)}〜${(c.hi*100).toFixed(0)}%`,c.n,pc(c.pred),pc(c.actual)]));
 }
 
+function initOdds(){
+  const o=(D.validation||{}).odds_check;
+  if(!o||!o.same_race){$('oddsNote').textContent='過去のオッズはまだ集めている途中です。';return}
+  const sr=o.same_race;
+  $('oddsNote').textContent=`公式サイトに残る締切時オッズで比べました(${o.from}〜${o.to}、${o.n_races}レース)。オッズから見た単勝の控除率は約${(o.takeout_win*100).toFixed(0)}%。`;
+  const rows=[['みんなの予想(オッズ)',sr.logloss_market.toFixed(4)],['モデル',sr.logloss_model.toFixed(4)]];
+  if(o.blend)rows.push(['混合(後半だけで評価)',`${o.blend.logloss_blend.toFixed(4)} <span class="sub">(同じ後半: オッズ ${o.blend.logloss_market.toFixed(4)} / モデル ${o.blend.logloss_model.toFixed(4)})</span>`]);
+  tbl('oddsTable',['予想のしかた','logloss(小さいほど良い)'],rows);
+  const rr=(o.roi||[]).filter(r=>/単勝|人気/.test(r.label)||/期待値の高い上位5/.test(r.label)).map(r=>[r.label,r.bets.toLocaleString(),`<span class="${r.roi>=1?'good':''}">${pc(r.roi)}</span> <span class="sub">±${r.se?(2*r.se*100).toFixed(0):'-'}</span>`]);
+  const br=(o.blend_roi||[]).map(r=>[r.label,r.bets,`<span class="${r.roi>=1?'good':''}">${pc(r.roi)}</span> <span class="sub">±${(2*r.se*100).toFixed(0)}</span>`]);
+  const t=document.createElement('table');t.id='oddsTable2';$('oddsTable').after(t);
+  t.innerHTML='<tr><th>期待値(確率×オッズ)で買ったとき</th><th>買い目</th><th>回収率</th></tr>'+rr.concat(br).map(r=>'<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>').join('');
+  const d=sr.gain/sr.se;
+  $('oddsVerdict').innerHTML=`モデルとオッズは<b>ほぼ互角</b>(差${sr.gain.toFixed(3)}、誤差±${(2*sr.se).toFixed(3)})。3連単を期待値で選ぶと基準より悪く(穴ほどモデルの誤差で割高)、単勝で混合した確率を使うと良く見える所もありますが、<b>誤差の範囲</b>で、まだ「得」とは言えません。`;
+}
 function initFwd(){
   const f=D.forward||{logged:0,settled:0,pending:0,strategies:[]};
   $('fwNote').textContent=`記録したレース ${f.logged}(答え合わせ済み ${f.settled} / 結果待ち ${f.pending})`;
@@ -293,7 +311,7 @@ function initPast(){
 }
 fetch('data.json').then(r=>r.json()).then(d=>{D=d;
   $('meta').textContent=`作成 ${d.built} / 最新の結果 ${d.last_result}`;
-  initUp();initEval();initFwd();initTrend();initPl();initPast();
+  initUp();initEval();initOdds();initFwd();initTrend();initPl();initPast();
 }).catch(e=>{$('meta').textContent='データを読み込めませんでした: '+e});
 </script>
 </body>

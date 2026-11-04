@@ -209,9 +209,6 @@ def evaluate(meta: pd.DataFrame, races: pd.DataFrame, P1, T, base: dict[str, np.
         return float(-np.mean(np.log(np.clip(P[te][ar, y], 1e-9, 1))))
 
     out["logloss"] = {"モデル": ll(P1), **{k: ll(v) for k, v in base.items()}}
-    # 市場の参考値: 勝った艇の単勝オッズから「市場が付けていた確率」を逆算(単勝の控除率20%と仮定。要確認)
-    pm = 0.8 * 100.0 / m["win_pay"].values[te]
-    out["market_logloss"] = float(-np.mean(np.log(np.clip(pm, 1e-9, 1))))
     out["top1_acc"] = {"モデル": float(np.mean(P1[te].argmax(1) == y)),
                        "1号艇": float(np.mean(y == 0))}
     # キャリブレーション: 予想した最大確率の帯ごとに、実際の的中率
@@ -424,6 +421,9 @@ def run(first_test: str | None = None) -> dict:
     ev = evaluate(meta, races, P1, T, base)
     P1x, Tx = walk_forward(Xe, mask, meta, str(t0.date()), 3)
     evx = evaluate(meta, races, P1x, Tx, {})
+    from boat import ev_check, odds_hist
+    odds_hist.unpack()  # 過去の締切時オッズ(boat/data/odds)があれば、市場との比較・期待値の検証もする
+    ev["odds_check"] = ev_check.run(P1, T, meta, races)
     ev["with_exhibition"] = {"logloss": evx["logloss"]["モデル"], "top1_acc": evx["top1_acc"]["モデル"],
                              "roi": evx["roi"]}
 
