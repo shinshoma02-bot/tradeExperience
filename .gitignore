@@ -6,3 +6,4 @@ data/
 research/data/
 research/_cache/
 keiba/_cache/
+!keiba/data/
