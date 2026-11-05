@@ -11,5 +11,6 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-      - run: pip install -r requirements.txt
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements.txt -r requirements-boat.txt -r requirements-keiba.txt
       - run: python -m pytest -q
