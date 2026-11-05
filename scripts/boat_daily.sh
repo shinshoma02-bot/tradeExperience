@@ -3,7 +3,7 @@
 # (締切前に1日数回回す。同じレースは最後の記録が評価に使われる)
 set -e
 cd "$(dirname "$0")/.."
-pip install -q -r requirements-boat.txt
+python -m pip install -q -r requirements-boat.txt
 python -m boat.cache unpack
 TODAY=$(TZ=Asia/Tokyo date +%F)
 FROM=$(TZ=Asia/Tokyo date -d "7 days ago" +%F)
