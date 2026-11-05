@@ -3,7 +3,7 @@
 # (木〜日の発走前に何度か回す。同じレースは「オッズ付きの最新の予想」が記録に残る)
 set -e
 cd "$(dirname "$0")/.."
-pip install -q -r requirements-keiba.txt
+python -m pip install -q -r requirements-keiba.txt  # pip と python が別物になる環境があるので python -m で揃える
 git pull -q --rebase origin "$(git branch --show-current)" || true
 YEAR=$(TZ=Asia/Tokyo date +%Y)
 python -m keiba.scrape_all "$YEAR"       # 今年の未取得の開催日だけ追加(取得済みは飛ばす)
