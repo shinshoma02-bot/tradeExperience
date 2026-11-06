@@ -230,8 +230,8 @@ function showDay(i){
 }
 let DAYS=[];
 function initUp(){
-  const up=[...new Set(D.upcoming.map(r=>r.date))].map(d=>({date:d,kind:'up',races:D.upcoming.filter(r=>r.date===d)}));
-  const pd=D.browse.length?D.browse[0].date:null;
+  const up=[...new Set(D.upcoming.map(r=>r.date))].map(d=>{const rs=D.upcoming.filter(r=>r.date===d);return {date:d,kind:rs.length&&rs.every(r=>r['3連単_combo'])?'past':'up',races:rs}});
+  const pd=D.browse.length&&!up.some(d=>d.date===D.browse[0].date)?D.browse[0].date:null;
   const past=pd?[{date:pd,kind:'past',races:D.browse.filter(r=>r.date===pd).sort((a,b)=>a.race_no-b.race_no)}]:[];
   DAYS=[...up,...past];
   $('dayPills').innerHTML=DAYS.map((d,i)=>`<button onclick="showDay(${i})">${dayLabel(d.date,d.kind)}</button>`).join('');

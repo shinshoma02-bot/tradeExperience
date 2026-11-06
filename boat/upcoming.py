@@ -99,6 +99,30 @@ def parse_3t(html: str) -> dict[str, float]:
     return out
 
 
+def parse_result(html: str) -> dict:
+    """公式の「レース結果」ページ。終わったレースの着順・払戻・決まり手。未終了なら空。"""
+    if not html:
+        return {}
+    import unicodedata
+    text = re.sub(r"\s+", " ", unicodedata.normalize("NFKC", BeautifulSoup(html, "html.parser").get_text(" ")))
+    m3 = re.search(r"3連単 ([1-6]) - ([1-6]) - ([1-6]) ¥([\d,]+) (\d+)", text)
+    if not m3:
+        return {}
+    out: dict = {"tri": "-".join(m3.group(i) for i in (1, 2, 3)), "tri_pay": int(m3.group(4).replace(",", ""))}
+    order = re.findall(r"(?<![\d.])([1-6]) ([1-6]) (\d{4}) \S+(?: \S+)? \d'\d\d\"\d", text)
+    out["order"] = [int(lane) for _, lane, _ in order]  # 着順(1着から)の枠番
+    w = re.search(r"単勝 ([1-6]) ¥([\d,]+)", text)
+    if w:
+        out["win_lane"], out["win_pay"] = int(w.group(1)), int(w.group(2).replace(",", ""))
+    k = re.search(r"決まり手 (\S+)", text)
+    if k:
+        out["kimarite"] = k.group(1)
+    seg = re.search(r"スタート情報(.*?)勝式", text)
+    if seg:
+        out["st"] = {int(a): float(b.lstrip("FL")) for a, b in re.findall(r"([1-6]) (F?L?\.\d+)", seg.group(1))}
+    return out
+
+
 def fetch_day(d: date) -> dict:
     def one(rno: int) -> dict:
         r = {"race_no": rno}
@@ -106,6 +130,10 @@ def fetch_day(d: date) -> dict:
         r.update(before)
         r["win_odds"] = parse_win_odds(scrape.get_html(_url("oddstf", d, rno)))
         r["odds3t"] = parse_3t(scrape.get_html(_url("odds3t", d, rno)))
+        if d <= datetime.now(JST).date():  # 当日のレースは、終わっていれば結果ページから結果を取る
+            res = parse_result(scrape.get_html(_url("raceresult", d, rno)))
+            if res:
+                r["result"] = res
         return r
 
     with ThreadPoolExecutor(max_workers=6) as ex:

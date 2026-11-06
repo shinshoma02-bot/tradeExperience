@@ -130,3 +130,14 @@ def test_boat_data_served_from_github_with_fallback(tmp_path, monkeypatch):
     r = make().get("/boat/data.json")  # 取れないときは同梱のデータ
     assert r.status_code == 200 and "validation" in r.json()
     assert make().get("/boat/").status_code == 200  # ページ本体も出る
+
+
+def test_parse_result_page():
+    html = ("<html><body>着 枠 ボートレーサー レースタイム １ 3 3072 西田 靖 1'50\"5 ２ 1 5211 高井 駿弥 1'52\"0 "
+            "３ 2 4555 富永 大一 1'52\"5 ４ 6 4952 吉武 真也 1'54\"3 ５ 5 5488 天堵 基華 1'55\"4 ６ 4 5407 中岡 駿 1'57\"3 "
+            "スタート情報 3 .05 逃げ 1 .09 2 .21 4 .11 6 .11 5 .14 勝式 組番 払戻金 人気 3連単 3 - 1 - 2 ¥2,700 9 "
+            "3連複 1 = 2 = 3 ¥350 1 2連単 3 - 1 ¥1,270 7 単勝 3 ¥330 複勝 3 ¥130 決まり手 逃げ 備考</body></html>")
+    r = upcoming.parse_result(html)
+    assert r["order"] == [3, 1, 2, 6, 5, 4] and r["tri"] == "3-1-2" and r["tri_pay"] == 2700
+    assert r["win_lane"] == 3 and r["win_pay"] == 330 and r["kimarite"] == "逃げ" and r["st"][2] == 0.21
+    assert upcoming.parse_result("<html>まだ結果なし</html>") == {}

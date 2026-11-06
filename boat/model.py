@@ -366,6 +366,13 @@ def race_cards(ent, races, meta, mask, P1, T, rows: np.ndarray, live=None, P1x=N
         c = {"date": str(mr["date"].date()), "race_no": int(mr["race_no"]), "boats": boats,
              "top": _top_combos(T[r], 10), "top2": _top_exacta(T[r])}
         lv = (live or {}).get(key)
+        if lv and lv.get("result"):  # 終わったレース: 競走成績(K)の公開前でも結果ページから結果を出す
+            rs = lv["result"]
+            for b in boats:
+                if b["lane"] in rs.get("order", []):
+                    b["finish"] = rs["order"].index(b["lane"]) + 1
+                if rs.get("st", {}).get(str(b["lane"])) is not None:
+                    b["st"] = rs["st"][str(b["lane"])]
         if lv:
             c["live"] = {k: lv[k] for k in ("weather", "course_order") if k in lv}
             for b in boats:
@@ -377,6 +384,13 @@ def race_cards(ent, races, meta, mask, P1, T, rows: np.ndarray, live=None, P1x=N
             if Tx is not None and lv.get("boats"):
                 c["top_x"] = _top_combos(Tx[r], 10)
                 c["top2_x"] = _top_exacta(Tx[r])
+            rs = lv.get("result")
+            if rs:
+                c["3連単_combo"], c["3連単_pay"] = rs["tri"], rs["tri_pay"]
+                if rs.get("win_pay"):
+                    c["win_pay"], c["win_lane"] = rs["win_pay"], rs.get("win_lane")
+                if rs.get("kimarite"):
+                    c["kimarite"] = rs["kimarite"]
             wo = lv.get("win_odds") or {}
             if wo:
                 c["win_odds"] = {int(k): v for k, v in wo.items()}
