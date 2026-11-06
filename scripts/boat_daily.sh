@@ -11,7 +11,8 @@ python -m boat.scrape "$FROM" "$TODAY"   # 直近1週間の穴埋め(取得済�
 python -m boat.odds_hist unpack
 python -m boat.odds_hist fetch "$FROM"   # 直近の締切時オッズ(検証用)
 python -m boat.upcoming
-python -m boat.model | tail -3
+python -m boat.model > /tmp/boat_model.log 2>&1 || { tail -20 /tmp/boat_model.log; exit 1; }  # 失敗を隠さない(途中で止めてコミットしない)
+tail -3 /tmp/boat_model.log
 python -m boat.cache pack
 python -m boat.odds_hist pack
 git add boat/site/data.json boat/site/live.json boat/data

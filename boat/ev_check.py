@@ -18,7 +18,7 @@ def run(P1, T, meta, races) -> dict:
     ok = (~np.isnan(P1[:, 0]) & (m["w1"] >= 0).values & m["win_pay"].notna().values & m["3連単_combo"].notna().values)
     rows = [i for i in np.where(ok)[0] if (str(m.at[i, "date"].date()), int(m.at[i, "race_no"])) in odds
             and len(odds[(str(m.at[i, "date"].date()), int(m.at[i, "race_no"]))]["o3"]) == 120
-            and len(odds[(str(m.at[i, "date"].date()), int(m.at[i, "race_no"]))]["win"]) >= 5]
+            and sum(1 for v in odds[(str(m.at[i, "date"].date()), int(m.at[i, "race_no"]))]["win"].values() if v > 0) >= 5]
     out: dict = {"n_races": len(rows)}
     if len(rows) < 200:
         return out
