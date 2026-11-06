@@ -94,7 +94,9 @@ def extract(raw: bytes, kind: str) -> str:
 
 def get_day(kind: str, d: date, today: date) -> str:
     f = CACHE / f"{kind}{d:%Y%m%d}.txt"
-    if f.exists():
+    # 結果(K)は開催日の途中や当日に取ると未完成のことがある。直近の日は毎回取り直す
+    recent_k = kind == "K" and (today - d).days <= 2
+    if f.exists() and not recent_k:
         return f.read_text(encoding="utf-8")
     raw = fetch_lzh(kind, d)
     if raw is None:
