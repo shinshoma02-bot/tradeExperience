@@ -7,6 +7,7 @@ from datetime import date, datetime, timezone
 from collections import defaultdict
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import FastAPI, HTTPException
 
 from app.brokers.base import Broker
@@ -427,8 +428,28 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
     pachinko_site = Path(__file__).resolve().parent.parent / "pachinko" / "site"
     if pachinko_site.is_dir():
         app.mount("/pachinko", StaticFiles(directory=pachinko_site, html=True), name="pachinko")
-    # 丸亀ボート予想サイト(/boat/)
+    # 丸亀ボート予想サイト(/boat/)。予想データ(data.json)は定期更新のたびにGitHubへpushされるので、
+    # Deployし直さなくても最新が出るよう、GitHubから取って1分キャッシュする(取れなければ同梱のデータ)
     boat_site = Path(__file__).resolve().parent.parent / "boat" / "site"
+    boat_cache: dict = {"t": 0.0, "body": None}
+    boat_raw = ("https://raw.githubusercontent.com/shinshoma02-bot/tradeExperience/"
+                "claude/trading-skeleton/boat/site/data.json")
+
+    @app.get("/boat/data.json", include_in_schema=False)
+    def boat_data():
+        from fastapi.responses import FileResponse, Response
+        if boat_cache["body"] is None or time.time() - boat_cache["t"] > 60:
+            try:
+                r = httpx.get(boat_raw, timeout=10)
+                if r.status_code == 200 and r.content.startswith(b"{"):
+                    boat_cache["body"], boat_cache["t"] = r.content, time.time()
+            except httpx.HTTPError:
+                pass
+        if boat_cache["body"] is not None:
+            return Response(boat_cache["body"], media_type="application/json",
+                            headers={"Cache-Control": "no-cache"})
+        return FileResponse(boat_site / "data.json", media_type="application/json")
+
     if boat_site.is_dir():
         app.mount("/boat", StaticFiles(directory=boat_site, html=True), name="boat")
 

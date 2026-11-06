@@ -104,3 +104,29 @@ def test_forward_blend_strategy(tmp_path, monkeypatch):
     ev = forward.evaluate(races)
     s = [x for x in ev["strategies"] if "混合" in x["label"]]
     assert s and any(x["bets"] >= 1 and x["hits"] >= 1 for x in s)
+
+
+def test_boat_data_served_from_github_with_fallback(tmp_path, monkeypatch):
+    import httpx
+    from fastapi.testclient import TestClient
+
+    from app.config import Settings
+    from app.main import create_app
+
+    def make():
+        return TestClient(create_app(Settings(webhook_secret="x", journal_path=str(tmp_path / "j.jsonl"))))
+
+    class R:
+        status_code = 200
+        content = b'{"built": "GITHUB"}'
+
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: R())
+    assert make().get("/boat/data.json").json() == {"built": "GITHUB"}  # GitHub の最新が出る
+
+    def boom(*a, **k):
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr(httpx, "get", boom)
+    r = make().get("/boat/data.json")  # 取れないときは同梱のデータ
+    assert r.status_code == 200 and "validation" in r.json()
+    assert make().get("/boat/").status_code == 200  # ページ本体も出る
