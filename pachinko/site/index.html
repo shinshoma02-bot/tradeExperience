@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>高松 台データ分析</title>
+<style>
+:root{--bg:#fff;--fg:#1c1c1e;--mut:#6b7280;--line:#e5e7eb;--acc:#0b6bcb;--warn:#fff4e5;--warnb:#f5b86b}
+@media(prefers-color-scheme:dark){:root{--bg:#121214;--fg:#ececf0;--mut:#9aa0aa;--line:#2c2c31;--acc:#6aa8ff;--warn:#2a2114;--warnb:#7a5a22}}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 system-ui,-apple-system,"Hiragino Sans",sans-serif}
+main{max-width:760px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:8px 0}h2{font-size:16px;margin:28px 0 8px;border-bottom:1px solid var(--line);padding-bottom:4px}
+.warn{background:var(--warn);border:1px solid var(--warnb);border-radius:8px;padding:10px 12px;font-size:14px}
+table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:5px 6px;border-bottom:1px solid var(--line);text-align:right}
+th:first-child,td:first-child{text-align:left}.mut{color:var(--mut);font-size:13px}.pos{color:#0a7d3b}.neg{color:#c0392b}
+.wrap{overflow-x:auto}
+</style>
+</head>
+<body><main>
+<h1>高松 台データ分析</h1>
+<p class="mut" id="meta">読み込み中…</p>
+<div class="warn"><b>先に大事なこと</b>:パチンコの当たりは機種ごとに固定の確率で、前日の履歴から「今日当たる台」は予測できない。スロットも店の設定の入れ方次第。ここの「候補」は<b>あくまで仮説</b>で、下の「答え合わせ」で基準(全台平均)を上回らない限り、根拠はない。遊技は使っていい額の範囲で。</div>
+
+<h2 id="t-pick">今日の候補</h2>
+<div id="picks"></div>
+
+<h2>答え合わせ(ウォークフォワード)</h2>
+<p class="mut">前日までのデータだけで候補を選び、翌日の実績で採点。「基準」は稼働が十分な全台。候補が基準を<b>誤差(±)以上に</b>上回って初めて意味がある。</p>
+<div class="wrap" id="wf"></div>
+
+<h2>前向き記録(予想を事前に固定して採点)</h2>
+<p class="mut">候補は結果が出る前に固定される。数が貯まるまで結論は出さない。</p>
+<div class="wrap" id="fw"></div>
+
+<h2>店×曜日の傾向(参考)</h2>
+<p class="mut">1台あたりの平均差。日数が少ないうちはほぼ偶然。</p>
+<div class="wrap" id="tend"></div>
+
+<p class="mut" id="rules"></p>
+</main>
+<script>
+const K={slot:"スロット(差枚)",pachi:"パチンコ(差玉)"},S={cont:"前日好調を継続",rev:"前日凹みの反発",base:"基準(全台)"};
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const sg=n=>(n>0?"+":"")+Math.round(n).toLocaleString();
+const cls=n=>n>0?"pos":n<0?"neg":"";
+function evalTable(o){
+  let h='<table><tr><th>種類/方針</th><th>台数</th><th>勝率</th><th>平均差</th></tr>',any=false;
+  for(const k in o)for(const s in o[k]){const x=o[k][s];if(!x.n)continue;any=true;
+    h+=`<tr><td>${K[k]} ${S[s]}</td><td>${x.n}</td><td>${(x.win*100).toFixed(1)}% ±${(x.win_se*100).toFixed(1)}</td><td class="${cls(x.mean)}">${sg(x.mean)} ±${Math.round(x.mean_se)}</td></tr>`;}
+  return any?h+"</table>":'<p class="mut">まだ採点できるデータがありません(連続した2営業日以上が必要)。</p>';
+}
+fetch("data.json").then(r=>r.json()).then(d=>{
+  document.getElementById("meta").textContent=d.rows?`${d.halls.join("・")} / ${d.days}日分 ${d.rows}台 / 最新データ ${d.updated}`:"データ未投入(pachinko/data/records.csv に台データを入れてください)";
+  document.getElementById("t-pick").textContent=d.target?`${d.target} の候補`:"候補";
+  const p=d.picks||{};let h="";
+  for(const s of ["cont","rev"]){const l=p[s]||[];if(!l.length)continue;
+    h+=`<h3 style="font-size:14px;margin:12px 0 4px">${S[s]}</h3><div class="wrap"><table><tr><th>店/台</th><th>機種</th><th>前日差</th><th>G/回転</th></tr>`;
+    for(const x of l)h+=`<tr><td>${esc(x.hall)} ${esc(x.no)}番</td><td>${esc(x.name)}</td><td class="${cls(x.diff)}">${sg(x.diff)}</td><td>${x.games.toLocaleString()}</td></tr>`;
+    h+="</table></div>";}
+  document.getElementById("picks").innerHTML=h||'<p class="mut">候補なし(データを入れてください)</p>';
+  document.getElementById("wf").innerHTML=evalTable(d.walk_forward);
+  document.getElementById("fw").innerHTML=evalTable(d.forward);
+  let t="";for(const x of d.tendency){t+=`<p style="margin:10px 0 2px"><b>${esc(x.hall)}</b> ${K[x.kind]}</p><table><tr>`+[..."月火水木金土日"].map(w=>`<th>${w}</th>`).join("")+"</tr><tr>"+[..."月火水木金土日"].map(w=>{const v=x.weekday[w];return v?`<td class="${cls(v.mean)}">${sg(v.mean)}<br><span class="mut">n=${v.n}</span></td>`:"<td>-</td>";}).join("")+"</tr></table>";}
+  document.getElementById("tend").innerHTML=t||'<p class="mut">データなし</p>';
+  document.getElementById("rules").textContent=`ルール(固定): 各店・各種類で上位${d.rules.top_n}台 / 稼働の最低 スロット${d.rules.min_games.slot}G・パチンコ${d.rules.min_games.pachi}回転`;
+}).catch(()=>{document.getElementById("meta").textContent="data.json を読めませんでした"});
+</script>
+</body></html>

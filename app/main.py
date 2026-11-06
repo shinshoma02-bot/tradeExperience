@@ -423,6 +423,10 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
     site = Path(__file__).resolve().parent.parent / "keiba" / "site"
     if site.is_dir():
         app.mount("/keiba", StaticFiles(directory=site, html=True), name="keiba")
+    # 高松パチンコ台データ分析(/pachinko/)
+    pachinko_site = Path(__file__).resolve().parent.parent / "pachinko" / "site"
+    if pachinko_site.is_dir():
+        app.mount("/pachinko", StaticFiles(directory=pachinko_site, html=True), name="pachinko")
     # 丸亀ボート予想サイト(/boat/)
     boat_site = Path(__file__).resolve().parent.parent / "boat" / "site"
     if boat_site.is_dir():
