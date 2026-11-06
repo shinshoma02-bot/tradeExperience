@@ -141,3 +141,37 @@ def test_parse_result_page():
     assert r["order"] == [3, 1, 2, 6, 5, 4] and r["tri"] == "3-1-2" and r["tri_pay"] == 2700
     assert r["win_lane"] == 3 and r["win_pay"] == 330 and r["kimarite"] == "逃げ" and r["st"][2] == 0.21
     assert upcoming.parse_result("<html>まだ結果なし</html>") == {}
+
+
+def test_boat_results_endpoint_fetches_finished_races_only(tmp_path, monkeypatch):
+    from datetime import datetime
+
+    import httpx
+    from fastapi.testclient import TestClient
+
+    from app import boat_live
+    from app.config import Settings
+    from app.main import create_app
+
+    boat_live._results.clear()
+    boat_live._tried.clear()
+    now = datetime(2026, 11, 6, 15, 30, tzinfo=boat_live.JST)  # 1R(15:21締切)は終了、2R(15:48)はまだ
+    races = [{"date": "2026-11-06", "race_no": 1, "close": "15:21"},
+             {"date": "2026-11-06", "race_no": 2, "close": "15:48"}]
+    page = ("着 枠 ボートレーサー レースタイム １ 3 3072 西田 靖 1'50\"5 ２ 1 5211 高井 駿弥 1'52\"0 "
+            "勝式 組番 払戻金 人気 3連単 3 - 1 - 2 ¥2,700 9 単勝 3 ¥330 決まり手 逃げ")
+    calls = []
+
+    class R:
+        status_code = 200
+        text = "<html><body>" + page + "</body></html>"
+
+    monkeypatch.setattr(httpx, "get", lambda url, **k: (calls.append(url), R())[1])
+    monkeypatch.setattr(boat_live.time, "sleep", lambda s: None)
+    out = boat_live.results_for_today(races, now)
+    assert list(out["results"]) == ["1"] and out["results"]["1"]["tri"] == "3-1-2"  # 2Rはまだ取りに行かない
+    assert len(calls) == 1
+    boat_live.results_for_today(races, now)
+    assert len(calls) == 1  # 取れたレースは取り直さない
+    boat_live._results.clear()
+    boat_live._tried.clear()

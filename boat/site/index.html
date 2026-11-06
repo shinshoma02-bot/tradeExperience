@@ -72,6 +72,7 @@ details.race[open]{border-color:var(--acc)}
 <div class="sub" id="upMeta"></div>
 <div class="pills" id="dayPills"></div>
 <div id="digest"></div>
+<div class="sub" id="resNote"></div>
 <div id="raceList"></div>
 </div>
 <div class="card"><details><summary>見かたと用語</summary>
@@ -200,7 +201,7 @@ function raceCard(r,kind){
   const mk=o.slice(0,3).map((b,i)=>`<span><span class="m">${M[i]}</span>${lane(b.lane)} ${b.name}</span>`).join('');
   const hasR=r.boats.some(b=>b.finish!=null);
   const t2=(r.top2_x||r.top2||[]).slice(0,3), t3=(r.top_x||r.top||[]).slice(0,5);
-  let h=`<details class="race"><summary><div class="rh"><span><b>${r.race_no}R</b> <span class="sub">${r.close||''} ${r.kind||''}</span></span><span class="conf">自信度 <b>${c[0]}</b> ${c[1]}</span></div><div class="mk">${mk}</div></summary><div class="rb">`;
+  let h=`<details class="race" data-no="${r.race_no}"><summary><div class="rh"><span><b>${r.race_no}R</b> <span class="sub">${r.close||''} ${r.kind||''}</span></span><span class="conf">自信度 <b>${c[0]}</b> ${c[1]}</span></div><div class="mk">${mk}</div></summary><div class="rb">`;
   if(r.live&&r.live.weather){const w=r.live.weather;h+=`<div class="sub">${w.sky} 風${w.wind}m 波${w.wave}cm</div>`}
   else if(hasR&&r.weather)h+=`<div class="sub">${r.weather} 風${r.wind}m 波${r.wave}cm</div>`;
   if(hasR&&r['3連単_combo']){
@@ -219,25 +220,49 @@ function raceCard(r,kind){
   h+=`<div class="sub">100円ずつ買うと 2連単3点=300円 / 3連単5点=500円。%は「その組み合わせになる確率」で、全部買っても当たるとは限りません。</div></div></details>`;
   return h;
 }
-function showDay(i){
+let CURI=0;
+function showDay(i,keep){
+  const open=keep?[...document.querySelectorAll('#raceList details[open]')].map(e=>e.dataset.no):[];
+  CURI=i;
   const d=DAYS[i];
   document.querySelectorAll('#dayPills button').forEach((b,j)=>b.classList.toggle('on',j===i));
   $('raceList').innerHTML=d.races.map(r=>raceCard(r,d.kind)).join('')||'<p class="sub">レースがありません</p>';
+  open.forEach(n=>{const e=document.querySelector(`#raceList details[data-no="${n}"]`);if(e)e.open=true});
   // 今日のポイント: 自信度の高いレース(◎の確率が60%以上)と、荒れそうなレース(45%未満)
   const hi=[],lo=[];
   for(const r of d.races){const q=sorted(r)[0].q;(q>=0.6?hi:q<0.45?lo:[]).push(r.race_no+'R')}
   $('digest').innerHTML=d.kind==='up'?`<div class="digest">📌 <b>今日のポイント</b><br>自信度が高いレース: ${hi.length?hi.join('・'):'なし'}<br>荒れそう(予想が割れている)レース: ${lo.length?lo.join('・'):'なし'}<br><span class="sub">荒れそうなレースは当てにくい分、買わずに見るだけにするのも手です。</span></div>`:'';
 }
 let DAYS=[];
-function initUp(){
+function buildDays(){
   const up=[...new Set(D.upcoming.map(r=>r.date))].map(d=>{const rs=D.upcoming.filter(r=>r.date===d);return {date:d,kind:rs.length&&rs.every(r=>r['3連単_combo'])?'past':'up',races:rs}});
   const pd=D.browse.length&&!up.some(d=>d.date===D.browse[0].date)?D.browse[0].date:null;
   const past=pd?[{date:pd,kind:'past',races:D.browse.filter(r=>r.date===pd).sort((a,b)=>a.race_no-b.race_no)}]:[];
   DAYS=[...up,...past];
   $('dayPills').innerHTML=DAYS.map((d,i)=>`<button onclick="showDay(${i})">${dayLabel(d.date,d.kind)}</button>`).join('');
+  return up;
+}
+// 終わったレースの結果を1分ごとに取り込む(サーバーが公式の結果ページから取ってくる)
+async function pollResults(){
+  try{
+    const res=await (await fetch('results.json',{cache:'no-store'})).json();
+    let changed=false;
+    for(const [no,x] of Object.entries(res.results||{})){
+      const c=D.upcoming.find(r=>r.date===res.date&&r.race_no===+no);
+      if(!c||c['3連単_combo'])continue;
+      c.boats.forEach(b=>{const k=(x.order||[]).indexOf(b.lane);if(k>=0)b.finish=k+1;if(x.st&&x.st[b.lane]!=null)b.st=x.st[b.lane]});
+      c['3連単_combo']=x.tri;c['3連単_pay']=x.tri_pay;if(x.win_pay)c.win_pay=x.win_pay;if(x.kimarite)c.kimarite=x.kimarite;changed=true;
+    }
+    if(changed){const date=DAYS[CURI]&&DAYS[CURI].date;buildDays();showDay(Math.max(0,DAYS.findIndex(d=>d.date===date)),true)}
+    $('resNote').textContent=`結果は終わったレースから自動で表示されます(最終確認 ${res.asof})`;
+  }catch(e){}
+}
+function initUp(){
+  const up=buildDays();
   const ex=D.upcoming.some(r=>r.live&&r.live.boats!==undefined||r.boats.some(b=>b.px!=null));
   $('upMeta').innerHTML=up.length?`レースをタップすると、くわしい予想と買い目が開きます。<br><b>${D.live_asof?D.live_asof+' 時点':'(展示・オッズはまだ)'}</b>の予想です。${ex?'展示タイムが出たレースは、展示を反映した予想になっています。':'展示タイムは各レースの直前に出ます。'}`:'次の開催の番組表はまだ出ていません(前日の午後に出ます)。下は直近の結果です。';
   if(DAYS.length)showDay(0);
+  pollResults();setInterval(()=>{if(!document.hidden)pollResults()},60000);
 }
 function fillSel(sel,vals,fmt){sel.innerHTML=vals.map(v=>`<option value="${v}">${fmt?fmt(v):v}</option>`).join('')}
 function tbl(id,head,rows){$(id).innerHTML='<tr>'+head.map(h=>`<th>${h}</th>`).join('')+'</tr>'+rows.map(r=>'<tr>'+r.map((c,i)=>`<td>${c}</td>`).join('')+'</tr>').join('')}

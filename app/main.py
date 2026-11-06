@@ -1,5 +1,6 @@
 import asyncio
 import hmac
+import json
 import os
 import threading
 import time
@@ -449,6 +450,21 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
             return Response(boat_cache["body"], media_type="application/json",
                             headers={"Cache-Control": "no-cache"})
         return FileResponse(boat_site / "data.json", media_type="application/json")
+
+    @app.get("/boat/results.json", include_in_schema=False)
+    def boat_results():
+        """今日のレースで、終わったものの結果(公式の結果ページから。サーバー側でキャッシュ)。"""
+        from fastapi.responses import JSONResponse
+
+        from app import boat_live
+        races: list = []
+        try:
+            data = json.loads(boat_data().body)
+            races = [{"date": c["date"], "race_no": c["race_no"], "close": c.get("close")}
+                     for c in data.get("upcoming", [])]
+        except Exception:
+            pass
+        return JSONResponse(boat_live.results_for_today(races), headers={"Cache-Control": "no-cache"})
 
     if boat_site.is_dir():
         app.mount("/boat", StaticFiles(directory=boat_site, html=True), name="boat")
