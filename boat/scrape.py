@@ -106,6 +106,9 @@ def get_day(kind: str, d: date, today: date) -> str:
             f.write_text("", encoding="utf-8")
         return ""
     block = extract(raw, kind)
+    # 直近の日は、丸亀のブロックがまだ入っていないだけのことがある。空なら保存しない(次回また取り直す)
+    if not block and (today - d).days <= 3:
+        return ""
     CACHE.mkdir(exist_ok=True)
     f.write_text(block, encoding="utf-8")
     return block
