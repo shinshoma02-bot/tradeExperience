@@ -96,7 +96,10 @@ def get_day(kind: str, d: date, today: date) -> str:
     f = CACHE / f"{kind}{d:%Y%m%d}.txt"
     # 結果(K)は開催日の途中や当日に取ると未完成のことがある。直近の日は毎回取り直す
     recent_k = kind == "K" and (today - d).days <= 2
-    if f.exists() and not recent_k:
+    recent = (today - d).days <= 3
+    # 直近で中身が空のキャッシュは、前の取得が早すぎたものなので取り直す
+    stale_empty = recent and f.exists() and f.stat().st_size == 0
+    if f.exists() and not recent_k and not stale_empty:
         return f.read_text(encoding="utf-8")
     raw = fetch_lzh(kind, d)
     if raw is None:
