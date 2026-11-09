@@ -124,7 +124,9 @@ def fetch_day(d: date) -> dict:
 
 def main(days: list[date]) -> dict:
     refresh_programs(days)
-    live = {"asof": datetime.now(JST).strftime("%Y-%m-%d %H:%M"), "days": [fetch_day(d) for d in days]}
+    # 丸亀の番組が無い日(開催なし)は、レースの箱だけ作って空の予想を出さない
+    held = [d for d in days if scrape.get_day("B", d, date.today())]
+    live = {"asof": datetime.now(JST).strftime("%Y-%m-%d %H:%M"), "days": [fetch_day(d) for d in held]}
     OUT.parent.mkdir(exist_ok=True)
     OUT.write_text(json.dumps(live, ensure_ascii=False), encoding="utf-8")
     return live
