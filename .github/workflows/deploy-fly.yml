@@ -1,0 +1,33 @@
+name: deploy-fly
+
+# アプリのコードや画面が変わったときだけ Fly に再デプロイする。
+# 定期更新の予想データ(boat/site/data.json など)は Fly が GitHub から直接読むので、再デプロイ不要。
+on:
+  push:
+    branches: [claude/trading-skeleton]
+    paths:
+      - "app/**"
+      - "boat/*.py"
+      - "boat/site/index.html"
+      - "keiba/**/*.py"
+      - "keiba/site/**"
+      - "Dockerfile"
+      - "fly.toml"
+      - "requirements*.txt"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-fly
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: flyctl deploy
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl deploy --remote-only --app tradeexperience
