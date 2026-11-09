@@ -16,6 +16,9 @@ tail -3 /tmp/boat_model.log
 python -m boat.cache pack
 python -m boat.odds_hist pack
 git add boat/site/data.json boat/site/live.json boat/data
+# 直近(今日・明日)にレースが1つも無ければ、更新してもコミットしない
+RACES=$(python -c 'import json; print(sum(len(d["races"]) for d in json.load(open("boat/site/live.json"))["days"]))')
+if [ "$RACES" = "0" ]; then echo "開催なし: コミットしない"; git reset -q; exit 0; fi
 if git diff --cached --quiet; then echo "変更なし"; else
   git commit -q -m "boat: 定期更新 $(TZ=Asia/Tokyo date '+%F %H:%M')"
   git push -q origin HEAD
