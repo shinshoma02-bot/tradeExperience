@@ -175,3 +175,19 @@ def test_boat_results_endpoint_fetches_finished_races_only(tmp_path, monkeypatch
     assert len(calls) == 1  # 取れたレースは取り直さない
     boat_live._results.clear()
     boat_live._tried.clear()
+
+
+def test_fan_parse_and_next_series():
+    """公式の期別成績(固定長)がコース別に読めること、次の開催の下見ページが読めること。"""
+    from boat import fan, upcoming
+    d = fan.parse_file((fan.DIR / "fan2510.lzh").read_bytes())
+    mine = d[d["reg"] == 4320].set_index("lane")  # 峰竜太(2025年後期の集計)
+    assert len(mine) == 6 and mine.loc[1, "f_n"] == 21 and mine.loc[1, "f_w"] == 15
+    assert abs(mine.loc[1, "win"] - 8.0) < 1e-9 and abs(mine.loc[1, "f_st"] - 0.14) < 1e-9
+    html = '<p>京極賞 2026/11/15-2026/11/20 3590 濱野谷 憲吾 級別： A1 4320 峰 竜太 級別： A1</p>'
+    a = upcoming.parse_assen(html)
+    assert a["from"] == "2026-11-15" and a["to"] == "2026-11-20"
+    assert [(r["reg"], r["name"], r["cls"]) for r in a["racers"]] == [(3590, "濱野谷憲吾", "A1"), (4320, "峰竜太", "A1")]
+    sch = ('<table><tr><th><a href=/owpc/pc/data/stadium?jcd=15>x</a></th><td class="is-gradeColorG1">'
+           '<a href="/owpc/pc/race/assen?jcd=15&hd=20261115">京極賞</a></td></tr></table>')
+    assert upcoming.parse_schedule(sch) == [{"title": "京極賞", "from": "2026-11-15", "grade": "G1"}]

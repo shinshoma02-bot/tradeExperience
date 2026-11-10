@@ -17,15 +17,18 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from boat import parse
+from boat import fan, parse
 
 HERE = Path(__file__).parent
 OUT = HERE / "site" / "data.json"
 START = date(2024, 1, 1)  # これより前は断片しか取っていない
 LAMBDA = 3.0  # L2正則化(過剰適合の抑え。2024年後半だけで選んだ。検証期間の2025年以降は見ていない)
 PRIOR_N = 6  # 選手の過去成績は平均に引き寄せる(少数サンプルの過大評価を防ぐ)
+# f_* = 公式の期別成績(全国・半年ごと)からそのコースの1着率/3連対率/平均STなど、s_* = 今節(この開催の前日まで)の成績。
+# どちらも2024年後半だけを見て採用を決めた(logloss 1.238→1.214)。検証期間(2025年〜)でも 1.212→1.201
 NUM = ["nat_win", "nat_2r", "loc_win", "loc_2r", "motor_2r", "boat_2r", "cls_n", "age", "weight",
-       "h_fin", "h_win", "h_st"]
+       "h_fin", "h_win", "h_st"] + fan.FEATS + ["s_fin", "s_st"]
+SERIES_K = 3  # 今節の成績は平均(3.5着)に引き寄せる
 COMBOS = list(itertools.permutations(range(6), 3))  # 120通り
 
 
@@ -56,9 +59,43 @@ def add_history(ent: pd.DataFrame) -> pd.DataFrame:
     return ent.drop(columns=["asof", "sf", "w", "sst", "nst"])
 
 
+def add_series(ent: pd.DataFrame, races: pd.DataFrame) -> pd.DataFrame:
+    """今節(同じ開催の初日〜前日)の平均着順と平均ST。調子とモーターの出方が表れる。当日のレースは含めない。"""
+    ent = ent.copy()
+    dn = races.drop_duplicates("date").set_index("date")["day_no"]
+    ent["day_no"] = ent["date"].map(dn).fillna(1).astype(int)
+    ent = ent.sort_values(["reg", "date", "race_no"]).reset_index(drop=True)
+    s_fin = np.full(len(ent), 3.5)
+    s_st = np.full(len(ent), 0.16)
+    s_n = np.zeros(len(ent))
+    for _, g in ent.groupby("reg", sort=False):
+        idx, d, k = g.index.values, g["date"].values, g["day_no"].values
+        has = g["finish"].notna().values
+        fin = np.where(g["finish"].values > 0, g["finish"].values, 6.0)
+        st = g["st"].values
+        for a in range(len(idx)):
+            if k[a] <= 1:
+                continue
+            sel = (d < d[a]) & (d >= d[a] - np.timedelta64(int(k[a]) - 1, "D")) & has
+            n = int(sel.sum())
+            if n:
+                s_n[idx[a]] = n
+                s_fin[idx[a]] = fin[sel].mean()
+                v = st[sel]
+                v = v[~np.isnan(v)]
+                if len(v):
+                    s_st[idx[a]] = v.mean()
+    ent["s_n"] = s_n
+    ent["s_fin"] = (s_fin * s_n + 3.5 * SERIES_K) / (s_n + SERIES_K)
+    ent["s_st"] = (s_st * s_n + 0.16 * SERIES_K) / (s_n + SERIES_K)
+    return ent
+
+
 def build(ent: pd.DataFrame, races: pd.DataFrame, with_ex: bool = False):
     """X: (レース数, 6, 特徴数), mask: (レース数, 6)=その艇が出走, meta: レースごとの情報。"""
     ent = add_history(ent)
+    ent = fan.attach(ent)
+    ent = add_series(ent, races)
     ent["cls_n"] = ent["cls"].map(parse.CLASS).astype(float)
     ent = ent.sort_values(["date", "race_no", "lane"]).reset_index(drop=True)
     keys = ent[["date", "race_no"]].drop_duplicates().reset_index(drop=True)
@@ -264,6 +301,43 @@ def evaluate(meta: pd.DataFrame, races: pd.DataFrame, P1, T, base: dict[str, np.
     return out
 
 
+def alt_methods(e: pd.DataFrame, meta: pd.DataFrame, races: pd.DataFrame, P1, P1x) -> list[dict]:
+    """予想のしかた別に「本命が1着になった割合」と単勝の回収率を比べる(検証期間、同じレース群ではなく各指標が使えるレース)。"""
+    m = meta.merge(races[["date", "race_no", "win_lane", "win_pay"]], on=["date", "race_no"], how="left")
+    te = ~np.isnan(P1[:, 0]) & (m["w1"] >= 0).values & m["win_pay"].notna().values
+    R = len(meta)
+    ri, ln = e["ri"].values, e["lane"].values - 1
+
+    def mat(v):
+        M = np.full((R, 6), np.nan)
+        M[ri, ln] = v
+        return M
+
+    inds = [
+        ("1号艇をいつも本命にする", mat(-e["lane"].values.astype(float)), 6),
+        ("全国勝率が一番高い艇", mat(e["nat_win"].values), 6),
+        ("モーター2連率が一番高い艇", mat(e["motor_2r"].values), 6),
+        ("そのコースの1着率が一番高い艇(全国・直近半年)", mat(e["f_cw"].values), 5),
+        ("今節の平均着順が一番良い艇(2日目以降)", mat(np.where(e["s_n"].values > 0, -e["s_fin"].values, np.nan)), 5),
+        ("展示タイムが一番速い艇", mat(-e["ex_time"].values) if "ex_time" in e else np.full((R, 6), np.nan), 5),
+        ("この予想(全部まとめたモデル)", P1, 3),
+        ("この予想+展示タイム", P1x, 3),
+    ]
+    wl = m["win_lane"].values
+    wp = m["win_pay"].values / 100.0
+    out = []
+    for label, M, need in inds:
+        ok = te & ((~np.isnan(M)).sum(axis=1) >= need)
+        if ok.sum() < 100:
+            continue
+        top = np.nanargmax(np.where(np.isnan(M[ok]), -1e18, M[ok]), axis=1) + 1
+        hit = top == wl[ok]
+        ret = np.where(hit, wp[ok], 0.0)
+        out.append({"label": label, "n": int(ok.sum()), "hit": float(hit.mean()), "roi": float(ret.mean()),
+                    "se": float(ret.std(ddof=1) / np.sqrt(len(ret)))})
+    return out
+
+
 def describe(ent: pd.DataFrame, races: pd.DataFrame) -> dict:
     """丸亀の全期間の傾向(コース別・レース番号別・風別・級別・決まり手)。"""
     res = ent[ent["finish"].notna()].copy()
@@ -359,6 +433,8 @@ def race_cards(ent, races, meta, mask, P1, T, rows: np.ndarray, live=None, P1x=N
                           "motor": int(b["motor"]), "motor_2r": float(b["motor_2r"]),
                           "boat_2r": float(b["boat_2r"]), "age": int(b["age"]),
                           "n_hist": int(b["n"]), "h_fin": round(float(b["h_fin"]), 2),
+                          "cw": round(float(b["f_cw"]), 3) if pd.notna(b.get("f_cw")) else None,
+                          "s_n": int(b["s_n"]), "s_fin": round(float(b["s_fin"]), 2) if b["s_n"] > 0 else None,
                           "p": round(float(P1[r, l - 1]), 4),
                           "finish": int(b["finish"]) if pd.notna(b.get("finish")) else None,
                           "ex_time": float(b["ex_time"]) if pd.notna(b.get("ex_time")) else None,
@@ -438,6 +514,7 @@ def run(first_test: str | None = None) -> dict:
     from boat import ev_check, odds_hist
     odds_hist.unpack()  # 過去の締切時オッズ(boat/data/odds)があれば、市場との比較・期待値の検証もする
     ev["odds_check"] = ev_check.run(P1, T, meta, races)
+    ev["methods"] = alt_methods(e, meta, races, P1, P1x)
     ev["with_exhibition"] = {"logloss": evx["logloss"]["モデル"], "top1_acc": evx["top1_acc"]["モデル"],
                              "roi": evx["roi"]}
 
@@ -477,7 +554,9 @@ def run(first_test: str | None = None) -> dict:
     cur = e[e["date"] == last_b].drop_duplicates("motor").sort_values("motor_2r", ascending=False)
     motors = [{"motor": int(r.motor), "m2r": float(r.motor_2r)} for r in cur.itertuples()]
 
+    nxt = next_series_info(ent)
     data = {
+        "next": nxt,
         "built": str(date.today()), "live_asof": (live or {}).get("asof"), "last_result": str(last_done.date()),
         "validation": ev, "forward": fwd, "describe": describe(ent, races), "racers": racer_table(ent),
         "upcoming": upcoming, "browse": browse,
@@ -487,6 +566,29 @@ def run(first_test: str | None = None) -> dict:
     OUT.parent.mkdir(exist_ok=True)
     OUT.write_text(json.dumps(data, ensure_ascii=False, default=_js), encoding="utf-8")
     return data
+
+
+def next_series_info(ent: pd.DataFrame) -> dict | None:
+    """次の開催(公式の出場予定選手)に、期別成績と丸亀での過去成績を付ける。番組表が出る前の「下見」用。"""
+    f = HERE / "site" / "next.json"
+    if not f.exists():
+        return None
+    nx = json.loads(f.read_text(encoding="utf-8"))
+    if not nx or not nx.get("racers"):
+        return nx or None
+    tab = fan.latest_table()
+    res = ent[ent["finish"].notna()]
+    hist = res.groupby("reg").agg(n=("finish", "size"), w1=("finish", lambda x: float((x == 1).mean())),
+                                  w3=("finish", lambda x: float(x.isin([1, 2, 3]).mean())))
+    for r in nx["racers"]:
+        t = tab.get(r["reg"])
+        if t:
+            r.update(t)
+        if r["reg"] in hist.index and hist.loc[r["reg"], "n"] >= 6:
+            h = hist.loc[r["reg"]]
+            r.update({"m_n": int(h["n"]), "m_w1": round(float(h["w1"]), 3), "m_w3": round(float(h["w3"]), 3)})
+    nx["racers"].sort(key=lambda r: -(r.get("win") or 0))
+    return nx
 
 
 def load_live() -> dict | None:

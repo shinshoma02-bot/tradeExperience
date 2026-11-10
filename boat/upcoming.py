@@ -122,6 +122,61 @@ def fetch_day(d: date) -> dict:
         return {"date": str(d), "races": list(ex.map(one, range(1, 13)))}
 
 
+NEXT = Path(__file__).parent / "site" / "next.json"
+_GRADE = {"SG": "SG", "PG1": "PG1", "G1": "G1", "G2": "G2", "G3": "G3", "Ippan": "一般"}
+
+
+def parse_schedule(html: str) -> list[dict]:
+    """月間スケジュールの丸亀の行から、これから始まる開催(出場予定選手のページがあるもの)を取る。"""
+    out = []
+    for tr in BeautifulSoup(html, "html.parser").find_all("tr"):
+        if not tr.find("a", href=re.compile(rf"stadium\?jcd={JCD}\b")):
+            continue
+        for td in tr.find_all("td"):
+            a = td.find("a", href=re.compile(r"/race/assen\?"))
+            if not a:
+                continue
+            m = re.search(r"hd=(\d{8})", a["href"])
+            g = next((v for k, v in _GRADE.items() if f"is-gradeColor{k}" in " ".join(td.get("class", []))), "")
+            if m:
+                out.append({"title": a.get_text(strip=True), "from": f"{m[1][:4]}-{m[1][4:6]}-{m[1][6:]}", "grade": g})
+    return out
+
+
+def parse_assen(html: str) -> dict:
+    """出場予定レーサー一覧 → 期間と選手(登録番号・名前・級別)。"""
+    t = re.sub(r"\s+", " ", BeautifulSoup(html, "html.parser").get_text(" "))
+    out: dict = {"racers": []}
+    m = re.search(r"(\d{4})/(\d{2})/(\d{2})-(\d{4})/(\d{2})/(\d{2})", t)
+    if m:
+        out["from"], out["to"] = "-".join(m.groups()[:3]), "-".join(m.groups()[3:])
+    for reg, name, cls in re.findall(r"(\d{4}) (\S+ \S+) 級別： ?([AB][12])", t):
+        out["racers"].append({"reg": int(reg), "name": name.replace(" ", ""), "cls": cls})
+    return out
+
+
+def next_series(today: date) -> dict:
+    """次の開催の下見(next.json)。番組表が出る前でも、開催名・日程・出場予定選手は分かる。"""
+    found: list[dict] = []
+    for k in (0, 1):
+        y, mth = today.year + (today.month + k - 1) // 12, (today.month + k - 1) % 12 + 1
+        found += parse_schedule(scrape.get_html(f"{BASE}/monthlyschedule?ym={y}{mth:02d}"))
+    seen, later = set(), []
+    for x in sorted(found, key=lambda x: x["from"]):
+        if x["from"] >= str(today) and x["from"] not in seen:
+            seen.add(x["from"])
+            later.append(x)
+    nx: dict = {}
+    if later:
+        nx = dict(later[0])
+        nx.update(parse_assen(scrape.get_html(f"{BASE}/assen?jcd={JCD}&hd={nx['from'].replace('-', '')}")))
+        nx["later"] = later[1:4]
+    old = json.loads(NEXT.read_text(encoding="utf-8")) if NEXT.exists() else None
+    if nx != old and (nx or old is None):  # 取得に失敗したときは前のを残す
+        NEXT.write_text(json.dumps(nx, ensure_ascii=False), encoding="utf-8")
+    return nx
+
+
 def main(days: list[date]) -> dict:
     refresh_programs(days)
     # 丸亀の番組が無い日(開催なし)は、レースの箱だけ作って空の予想を出さない
@@ -139,6 +194,9 @@ if __name__ == "__main__":
         t = datetime.now(JST).date()
         ds = [t, t + timedelta(days=1)]
     live = main(ds)
+    nx = next_series(datetime.now(JST).date())
+    if nx:
+        print("次の開催:", nx.get("grade"), nx.get("title"), nx.get("from"), "〜", nx.get("to"), f"{len(nx.get('racers', []))}人")
     for dd in live["days"]:
         n = sum(1 for r in dd["races"] if r.get("boats"))
         o = sum(1 for r in dd["races"] if r.get("odds3t"))
