@@ -595,6 +595,29 @@ def next_series_info(ent: pd.DataFrame, venue: str = venues.DEFAULT) -> dict | N
     return nx
 
 
+def write_summary() -> dict:
+    """全会場の「今日・明日のレース」「次の開催」「最新の結果日」だけの軽い一覧(site/summary.json)。
+    画面の会場リストに開催状況を出すためのもの。重い data_*.json を全部読まなくて済む。"""
+    out: dict = {"asof": None, "venues": {}}
+    for v, name in venues.VENUES.items():
+        live = load_live(v) or {}
+        out["asof"] = max(filter(None, [out["asof"], live.get("asof")]), default=None)
+        nx = None
+        f = venues.site_file("next", v)
+        if f.exists():
+            nx = json.loads(f.read_text(encoding="utf-8")) or None
+        d = venues.site_file("data", v)
+        last = json.loads(d.read_text(encoding="utf-8")).get("last_result") if d.exists() else None
+        out["venues"][v] = {
+            "name": name,
+            "days": [{"date": x["date"], "n": len(x["races"])} for x in live.get("days", []) if x.get("races")],
+            "next": {k: nx[k] for k in ("title", "grade", "from", "to") if nx and k in nx} or None,
+            "last_result": last,
+        }
+    (HERE / "site" / "summary.json").write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
+    return out
+
+
 def load_live(venue: str = venues.DEFAULT) -> dict | None:
     f = venues.site_file("live", venue)
     return json.loads(f.read_text(encoding="utf-8")) if f.exists() else None
@@ -630,3 +653,4 @@ if __name__ == "__main__":
         for x in r["roi"]:
             print(f"{x['label']:<36} n={x['n']:<5} 的中{x['hit']*100:5.1f}% 回収{x['roi']*100:5.1f}% (±{2*x['se']*100:.0f})")
         print("予想対象:", len(d["upcoming"]), "レース")
+    write_summary()

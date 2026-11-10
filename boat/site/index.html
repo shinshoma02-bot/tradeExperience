@@ -4,19 +4,30 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>丸亀ボート予想ラボ</title>
+<meta name="description" content="四国のボートレース(鳴門・丸亀・児島)を、公式データから計算した勝つ確率で予想するサイトです。">
+<meta property="og:type" content="website">
+<meta property="og:title" content="ボートレース予想ラボ(鳴門・丸亀・児島)">
+<meta property="og:description" content="四国のボートレースの勝つ確率と、レースが終わるたびに出る結果。">
+<meta name="theme-color" content="#0a7ea4">
 <style>
 :root{--bg:#f4f8fb;--card:#fff;--ink:#14212e;--sub:#5f6f7e;--line:#dfe6ec;--acc:#0a7ea4;--bar:#8fcbe0;--hit:#12a15f;--bad:#d92d20;--warn:#fff7e0;--warnline:#e6c200}
 @media (prefers-color-scheme:dark){:root{--bg:#0e151c;--card:#16202a;--ink:#e6edf3;--sub:#93a3b1;--line:#263441;--acc:#4cc2e6;--bar:#2c6479;--hit:#32d583;--bad:#f97066;--warn:#2b2614}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.65 -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif}
-main{max-width:820px;margin:0 auto;padding:16px}
-h1{font-size:22px;margin:8px 0 2px}h2{font-size:17px;margin:0 0 8px}h3{font-size:15px;margin:14px 0 6px}
+main{max-width:820px;margin:0 auto;padding:0 16px 24px}
+h1{font-size:16px;margin:0;color:var(--sub);font-weight:600}h2{font-size:19px;margin:0 0 8px}h3{font-size:15px;margin:14px 0 6px}
 .sub{color:var(--sub);font-size:13px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin:14px 0}
-.warn{background:var(--warn);border-color:var(--warnline)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin:12px 0}
+/* 上に固定する会場バー */
+.bar-top{position:sticky;top:0;z-index:10;background:var(--bg);padding:10px 0 8px;border-bottom:1px solid var(--line);margin-bottom:8px}
+.ven{display:flex;align-items:center;gap:10px}
+.ven label{font-size:14px;color:var(--sub);white-space:nowrap;font-weight:600}
+.ven select{font-size:19px;font-weight:700;min-height:48px;padding:8px 12px;border-radius:10px;border:2px solid var(--acc);background:var(--card);color:var(--ink);width:100%}
+.note{font-size:13px;color:var(--sub);margin:6px 0 2px}
+.venchip{display:inline-block;background:var(--acc);color:#fff;border-radius:99px;padding:1px 12px;font-size:17px;margin-right:6px}
 table{width:100%;border-collapse:collapse;font-size:15px}
 th,td{padding:6px 5px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
-th:first-child,td:first-child{text-align:left}#roiTable td:first-child,#llTable td:first-child,#oddsTable td:first-child,#oddsTable2 td:first-child,#fwTable td:first-child{white-space:normal;min-width:150px}#oddsTable td,#oddsTable2 td{white-space:normal}th{color:var(--sub);font-weight:600;font-size:12px}
+th:first-child,td:first-child{text-align:left}#roiTable td:first-child,#llTable td:first-child,#methT td:first-child,#oddsTable td:first-child,#oddsTable2 td:first-child,#fwTable td:first-child{white-space:normal;min-width:150px}#oddsTable td,#oddsTable2 td{white-space:normal}th{color:var(--sub);font-weight:600;font-size:12px}
 .name{text-align:left;white-space:normal}
 select,input{width:100%;font-size:16px;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
 .row{display:flex;gap:8px;margin-bottom:8px}.row>*{flex:1}
@@ -25,16 +36,16 @@ select,input{width:100%;font-size:16px;padding:10px;border-radius:8px;border:1px
 .bar b{position:relative;font-size:12px;padding-left:6px;line-height:18px}
 .good{color:var(--hit);font-weight:700}.bad{color:var(--bad)}
 .top{background:rgba(10,126,164,.10)}
-details summary{cursor:pointer;color:var(--acc)}
-.tabs{display:flex;gap:6px;margin:12px 0 0;flex-wrap:wrap}.tabs button{flex:1;min-width:76px;padding:9px 4px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;font-size:14px}
-.tabs button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+details>summary{cursor:pointer}
+.tabs{display:flex;gap:6px;margin:6px 0 0}.tabs button{flex:1;min-height:46px;padding:8px 4px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;font-size:16px}
+.tabs button.on{background:var(--acc);color:#fff;border-color:var(--acc);font-weight:700}
 .hidden{display:none}
 .lane{display:inline-block;width:22px;height:22px;line-height:22px;text-align:center;border-radius:4px;font-weight:700;font-size:13px;border:1px solid #888}
 .l1{background:#fff;color:#000}.l2{background:#000;color:#fff}.l3{background:#e53935;color:#fff;border-color:#e53935}
 .l4{background:#1e63d6;color:#fff;border-color:#1e63d6}.l5{background:#f6d70e;color:#000;border-color:#d7b900}.l6{background:#1faa59;color:#fff;border-color:#1faa59}
 .pill{display:inline-block;font-size:11px;padding:1px 7px;border-radius:99px;background:var(--line);color:var(--sub);margin-left:6px}
 .combo{white-space:nowrap}
-.pills{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.pills button{flex:1;min-width:120px;padding:12px 8px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;font-size:16px}
+.pills{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.pills button{flex:1;min-width:120px;min-height:46px;padding:10px 8px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;font-size:16px}
 .pills button.on{background:var(--acc);color:#fff;border-color:var(--acc);font-weight:700}
 details.race{border:1px solid var(--line);border-radius:12px;margin:10px 0;background:var(--card)}
 details.race>summary{list-style:none;cursor:pointer;padding:12px;color:var(--ink)}
@@ -45,52 +56,42 @@ details.race[open]{border-color:var(--acc)}
 .mk .m{font-weight:700;color:var(--acc);margin-right:2px}
 .conf{font-size:14px;color:var(--sub)}.conf b{color:#e0a100;font-size:15px;letter-spacing:1px}
 .rb{padding:0 12px 12px}
-.digest{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:8px 0;font-size:16px}.digest b{color:var(--acc)}.stale{color:var(--bad);font-weight:700}.chips{display:flex;flex-wrap:wrap;gap:8px 14px;margin:6px 0}
+.digest{font-size:15px;margin:6px 0 2px}.digest b{color:var(--acc)}.chips{display:flex;flex-wrap:wrap;gap:8px 14px;margin:6px 0}
 .chip{white-space:nowrap;border:1px solid var(--line);border-radius:8px;padding:4px 8px;background:var(--bg)}
 .chip small{color:var(--sub)}
 .res{background:rgba(18,161,95,.12);border-radius:8px;padding:8px 10px;margin:8px 0}
-
+.alt{background:var(--warn);border:1px solid var(--warnline);border-radius:12px;padding:10px 12px;margin:10px 0;font-size:15px}
+.alt button{margin:4px 6px 0 0;min-height:44px;padding:6px 16px;border-radius:99px;border:1px solid var(--acc);background:var(--card);color:var(--acc);font-size:16px;font-weight:700}
+details.more{padding:0}details.more>summary{padding:14px;font-weight:700;font-size:17px}details.more>.in{padding:0 14px 14px}
 </style>
 </head>
 <body>
 <main>
-<h1>丸亀ボート予想ラボ</h1>
-<div class="pills" id="venPills" style="margin:6px 0"></div>
-<div class="sub" id="meta">読み込み中…</div>
-
-<div class="card warn">
-<b>はじめに</b>
-<p style="margin:6px 0 0">舟券(ボートレースの券)は、買い続けると<b>平均で賭け金の75〜80%しか戻らない</b>仕組みです。この予想も「儲かる」ものではなく、レースを楽しむ参考です。<b>無理のない金額で、20歳以上の方が</b>。</p>
+<div class="bar-top">
+  <div class="ven"><label for="venSel">会場</label><select id="venSel" aria-label="会場を選ぶ"></select></div>
 </div>
+<div class="note"><b>舟券は平均で賭け金の75〜80%しか戻りません。</b>レースを楽しむ参考に、無理のない金額で(20歳未満は購入できません)。</div>
+<h1>ボートレース予想ラボ <span class="sub" id="meta">読み込み中…</span></h1>
 
 <div class="tabs">
-<button data-t="up" class="on">予想</button><button data-t="past">過去の結果</button><button data-t="ev">予想の成績</button><button data-t="tr">丸亀のクセ</button><button data-t="pl">選手・モーター</button>
+<button data-t="up" class="on">予想</button><button data-t="past">過去の結果</button><button data-t="data">データ</button>
 </div>
 
 <section id="t-up">
+<div id="altBanner"></div>
 <div class="card">
-<h2>レース予想</h2>
-<div class="sub" id="upMeta"></div>
+<h2 id="upHead"></h2>
 <div class="pills" id="dayPills"></div>
-<div id="digest"></div>
-<div class="sub" id="resNote"></div>
+<div class="digest" id="digest"></div>
+<div class="sub" id="upMeta"></div>
 <div id="raceList"></div>
+<div class="sub" id="resNote"></div>
 </div>
 <div class="card" id="nextCard" style="display:none"></div>
-<div class="card"><details><summary>見かたと用語</summary>
-<ul class="sub" style="font-size:15px">
-<li><b>◎ ○ ▲</b>: 勝ちそうな順(◎が一番)。数字の枠の色は、ボートの色と同じです。</li>
-<li><b>自信度</b>: ◎が1着になる確率が高いほど★が多い。★が少ないレースは荒れそうです。</li>
-<li><b>2連単</b>: 1着と2着を、順番どおりに当てる舟券。 <b>3連単</b>: 1・2・3着を順番どおりに当てる舟券(当たりにくいが配当は大きい)。</li>
-<li><b>枠(1〜6)</b>: ボートの番号。1号艇は内側で有利です。 <b>級別</b>: A1が一番強く、A2、B1、B2の順。</li>
-<li><b>展示</b>: レース直前の試運転のタイム(小さいほど速い)。出ていれば予想に反映します。</li>
-<li>確率はモデルの計算で、当たる保証はありません。予想の成績は「予想の成績」タブで確認できます。</li>
-</ul></details></div>
 </section>
 
-<section id="t-ev" class="hidden">
-<div class="card">
-<h2>モデルの通信簿</h2>
+<section id="t-data" class="hidden">
+<details class="card more"><summary>予想の成績(どれくらい当たる?)</summary><div class="in">
 <div class="sub" id="evalNote"></div>
 <h3>どれだけ勝ち艇に高い確率を付けられたか</h3>
 <div style="overflow-x:auto"><table id="llTable"></table></div>
@@ -113,11 +114,10 @@ details.race[open]{border-color:var(--acc)}
 <h3>確率は当たっているか(キャリブレーション)</h3>
 <div style="overflow-x:auto"><table id="calTable"></table></div>
 <p class="sub">「モデルが◯%と言った本命」が実際に何%勝ったか。ズレが小さいほど確率として信用できます。</p>
-</div>
-</section>
+</div></details>
 
-<section id="t-tr" class="hidden">
-<div class="card"><h2>丸亀の傾向</h2><div class="sub" id="trNote"></div>
+<details class="card more"><summary>丸亀のクセ(コース・風・波)</summary><div class="in">
+<div class="sub" id="trNote"></div>
 <h3>コース(枠番)別の成績</h3><div style="overflow-x:auto"><table id="laneT"></table></div>
 <h3>レース番号別: 1号艇が勝つ割合と3連単の配当</h3><div style="overflow-x:auto"><table id="rnT"></table></div>
 <h3>風の強さ別: 1号艇が勝つ割合</h3><table id="windT"></table>
@@ -126,39 +126,71 @@ details.race[open]{border-color:var(--acc)}
 <h3>決まり手</h3><table id="kimT"></table>
 <h3>級別の成績</h3><table id="clsT"></table>
 <h3>1号艇が負けたとき、勝つのは?</h3><table id="lostT"></table>
-<p class="sub">風向きは公式の記録(16方位)のまま。丸亀の水面は海水で潮の満ち引きの影響もありますが、潮位は取っていません。</p>
-</div>
-</section>
+<p class="sub">風向きは公式の記録(16方位)のまま。海水の水面は潮の満ち引きの影響もありますが、潮位は取っていません。</p>
+</div></details>
 
-<section id="t-pl" class="hidden">
-<div class="card"><h2>選手(丸亀での成績)</h2>
+<details class="card more"><summary>選手・モーター</summary><div class="in">
+<h3>選手(丸亀での成績)</h3>
 <input id="plQ" placeholder="名前で絞り込み(例: 田頭)">
 <div style="overflow-x:auto;margin-top:8px"><table id="plT"></table></div>
-<p class="sub">この集計期間で丸亀に18走以上した選手。ST=スタートタイミング(平均、小さいほど早い。0.15前後が普通)。1コース勝率は1コースで5走以上のとき。</p></div>
-<div class="card"><h2>モーター(いまの節)</h2><div class="sub" id="moNote"></div>
+<p class="sub">この集計期間で丸亀に18走以上した選手。ST=スタートタイミング(平均、小さいほど早い。0.15前後が普通)。1コース勝率は1コースで5走以上のとき。</p>
+<h3>モーター(いまの節)</h3><div class="sub" id="moNote"></div>
 <div style="overflow-x:auto"><table id="moT"></table></div>
-<p class="sub">モーター2連率=そのモーターを使った選手の2着以内率(公式、直近の節のもの)。モーターは抽選で変わる運の要素もあり、数字ほど差は出ません。</p></div>
+<p class="sub">モーター2連率=そのモーターを使った選手の2着以内率(公式、直近の節のもの)。モーターは抽選で変わる運の要素もあり、数字ほど差は出ません。</p>
+</div></details>
 </section>
 
 <section id="t-past" class="hidden">
-<div class="card"><h2>答え合わせ(過去のレース)</h2>
+<div class="card"><h2>答え合わせ(丸亀の過去のレース)</h2>
 <div class="sub">その日より前のデータだけで学習したモデルの予想と、実際の結果を並べます。</div>
-<div class="row" style="margin-top:8px"><select id="paDay"></select><select id="paRace"></select></div>
+<div class="row" style="margin-top:8px"><select id="paDay" aria-label="日付"></select><select id="paRace" aria-label="レース"></select></div>
 <div id="paBox" style="margin-top:12px"></div></div>
 </section>
 
-<p class="sub" style="margin:18px 0">データ元: ボートレース公式の番組表・競走成績(<a href="https://www.boatrace.jp/" style="color:var(--acc)">boatrace.jp</a>、アクセスは1秒に1回以内)。個人の研究用で、舟券の購入を勧めるものではありません。</p>
+<div class="card"><details><summary>見かたと用語・ご注意</summary>
+<ul class="sub" style="font-size:15px">
+<li><b>◎ ○ ▲</b>: 勝ちそうな順(◎が一番)。数字の枠の色は、ボートの色と同じです。</li>
+<li><b>自信度</b>: ◎が1着になる確率が高いほど★が多い。★が少ないレースは荒れそうです。</li>
+<li><b>2連単</b>: 1着と2着を、順番どおりに当てる舟券。 <b>3連単</b>: 1・2・3着を順番どおりに当てる舟券(当たりにくいが配当は大きい)。</li>
+<li><b>枠(1〜6)</b>: ボートの番号。1号艇は内側で有利です。 <b>級別</b>: A1が一番強く、A2、B1、B2の順。</li>
+<li><b>展示</b>: レース直前の試運転のタイム(小さいほど速い)。出ていれば予想に反映します。</li>
+<li>確率はモデルの計算で、<b>当たる保証も、儲かる保証もありません</b>。舟券の購入を勧めるものではなく、個人の研究で、公式(日本モーターボート競走会など)とは関係ありません。</li>
+<li>舟券は20歳になってから。買うなら、失ってもよい金額で。</li>
+<li>データ元: ボートレース公式の番組表・競走成績(<a href="https://www.boatrace.jp/" style="color:var(--acc)">boatrace.jp</a>、アクセスは1秒に1回以内)。データの利用条件は公開前に要確認です。</li>
+</ul></details></div>
 </main>
 <script>
 const $=id=>document.getElementById(id);
-// 場の切り替え: ?v=14(鳴門) ?v=16(児島)。何も無ければ丸亀(15)
+// 会場: ?v=14(鳴門) ?v=16(児島) ?v=15(丸亀)。URL > 前回の選択 > 丸亀
 const VENS={'15':'丸亀','14':'鳴門','16':'児島'};
-const V=VENS[new URLSearchParams(location.search).get('v')]?new URLSearchParams(location.search).get('v'):'15';
+const ORDER=['15','14','16'];  // 会場リストの並び順(丸亀が先頭)
+let saved=null;try{saved=localStorage.getItem('boatV')}catch(e){}
+const qv=new URLSearchParams(location.search).get('v');
+const V=VENS[qv]?qv:(VENS[saved]?saved:'15');
 const VN=VENS[V];
-document.title=VN+'ボート予想ラボ';
-(function(){const w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT),ns=[];while(w.nextNode())ns.push(w.currentNode);
-  ns.forEach(n=>{if(n.parentNode.tagName!=='SCRIPT'&&n.nodeValue.includes('丸亀'))n.nodeValue=n.nodeValue.replaceAll('丸亀',VN)})})();
-$('venPills').innerHTML=Object.entries(VENS).map(([k,n])=>`<button class="${k===V?'on':''}" onclick="location.search='${k==='15'?'':'?v='+k}'">${n}</button>`).join('');
+try{localStorage.setItem('boatV',V)}catch(e){}
+document.title=VN+'のボートレース予想|ボートレース予想ラボ';
+(function(){const w=document.createTreeWalker(document.querySelector('main'),NodeFilter.SHOW_TEXT),ns=[];while(w.nextNode())ns.push(w.currentNode);
+  ns.forEach(n=>{if(n.nodeValue.includes('丸亀'))n.nodeValue=n.nodeValue.replaceAll('丸亀',VN)})})();
+const TODAY=new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'});
+const TOMORROW=new Date(Date.now()+86400000).toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'});
+const WD=['日','月','火','水','木','金','土'];
+const md=d=>{const t=new Date(d+'T00:00:00');return `${t.getMonth()+1}/${t.getDate()}(${WD[t.getDay()]})`};
+let SUM=null;
+// その会場の開催状況(会場リストの説明と、休みの会場のご案内に使う)
+function venStatus(v){
+  const s=SUM&&SUM.venues&&SUM.venues[v];if(!s)return '';
+  const has=d=>(s.days||[]).some(x=>x.date===d&&x.n>0);
+  if(has(TODAY))return '今日あり';
+  if(has(TOMORROW))return '明日あり';
+  if(s.next&&s.next.from>=TODAY)return md(s.next.from)+'から';
+  return 'お休み中';
+}
+function buildVenueSelect(){
+  $('venSel').innerHTML=ORDER.map(k=>{const n=VENS[k],st=venStatus(k);return `<option value="${k}"${k===V?' selected':''}>${n}${st?'(':''}${st}${st?')':''}</option>`}).join('');
+  $('venSel').onchange=e=>{const v=e.target.value;try{localStorage.setItem('boatV',v)}catch(_){}location.search='?v='+v};
+}
+buildVenueSelect();
 const pc=(x,d=1)=>x==null?'-':(x*100).toFixed(d)+'%';
 const lane=n=>`<span class="lane l${n}">${n}</span>`;
 const combo=c=>c.split('-').map(lane).join(' ');
@@ -166,7 +198,7 @@ let D=null;
 
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));
-  ['up','ev','tr','pl','past'].forEach(t=>$('t-'+t).classList.toggle('hidden',t!==b.dataset.t));
+  ['up','data','past'].forEach(t=>$('t-'+t).classList.toggle('hidden',t!==b.dataset.t));
 });
 
 function raceTable(r,withX){
@@ -205,8 +237,7 @@ function weatherLine(r){
   return `<div class="sub">${bits.join(' / ')}</div>`;
 }
 
-const WD=['日','月','火','水','木','金','土'];
-function dayLabel(d,kind){const t=new Date(d+'T00:00:00');return `${t.getMonth()+1}/${t.getDate()}(${WD[t.getDay()]}) ${kind==='up'?'予想':'結果'}`}
+function dayLabel(d,kind){return `${md(d)} ${kind==='up'?'予想':'結果'}`}
 function sorted(r){const x=r.boats.some(b=>b.px!=null);return r.boats.map(b=>({...b,q:x&&b.px!=null?b.px:b.p})).sort((a,b)=>b.q-a.q)}
 function conf(q){return q>=0.6?['★★★','高い']:q>=0.45?['★★☆','ふつう']:['★☆☆','低い(荒れそう)']}
 function raceCard(r,kind){
@@ -214,9 +245,7 @@ function raceCard(r,kind){
   const mk=o.slice(0,3).map((b,i)=>`<span><span class="m">${M[i]}</span>${lane(b.lane)} ${b.name}</span>`).join('');
   const hasR=r.boats.some(b=>b.finish!=null);
   const t2=(r.top2_x||r.top2||[]).slice(0,3), t3=(r.top_x||r.top||[]).slice(0,5);
-  let h=`<details class="race" data-no="${r.race_no}"><summary><div class="rh"><span><b>${r.race_no}R</b> <span class="sub">${r.close||''} ${r.kind||''}</span></span><span class="conf">自信度 <b>${c[0]}</b> ${c[1]}</span></div><div class="mk">${mk}</div></summary><div class="rb">`;
-  if(r.live&&r.live.weather){const w=r.live.weather;h+=`<div class="sub">${w.sky} 風${w.wind}m 波${w.wave}cm</div>`}
-  else if(hasR&&r.weather)h+=`<div class="sub">${r.weather} 風${r.wind}m 波${r.wave}cm</div>`;
+  let h=`<details class="race" data-no="${r.race_no}"><summary><div class="rh"><span><b>${VN} ${r.race_no}R</b> <span class="sub">${r.close||''} ${r.kind||''}</span></span><span class="conf">自信度 <b>${c[0]}</b> ${c[1]}</span></div><div class="mk">${mk}</div></summary><div class="rb">`;
   if(hasR&&r['3連単_combo']){
     const win=r.boats.filter(b=>b.finish>=1&&b.finish<=3).sort((a,b)=>a.finish-b.finish).map(b=>lane(b.lane)).join(' ');
     const k2=t2.some(x=>x.c===r['3連単_combo'].split('-').slice(0,2).join('-')), k3=t3.some(x=>x.c===r['3連単_combo']);
@@ -230,8 +259,11 @@ function raceCard(r,kind){
   h+='</table>';
   const chips=(l,u)=>l.map(x=>`<span class="chip">${combo(x.c)} <small>${pc(x.p,0)}</small></span>`).join('');
   h+=`<h3>おすすめの買い目${kind==='past'?'(その日の予想)':''}</h3><div class="sub">2連単(1着→2着)</div><div class="chips">${chips(t2)}</div><div class="sub">3連単(1着→2着→3着)</div><div class="chips">${chips(t3)}</div>`;
-  h+=`<div class="sub">100円ずつ買うと 2連単3点=300円 / 3連単5点=500円。%は「その組み合わせになる確率」で、全部買っても当たるとは限りません。</div></div></details>`;
-  return h;
+  h+=`<div class="sub">100円ずつ買うと 2連単3点=300円 / 3連単5点=500円。%は「その組み合わせになる確率」で、全部買っても当たるとは限りません。</div>`;
+  const wl=r.live&&r.live.weather?r.live.weather:null;
+  if(wl)h+=`<div class="sub">${wl.sky} 風${wl.wind}m 波${wl.wave}cm</div>`;
+  else if(hasR&&r.weather)h+=`<div class="sub">${r.weather} 風${r.wind}m 波${r.wave}cm</div>`;
+  return h+'</div></details>';
 }
 let CURI=0;
 function showDay(i,keep){
@@ -239,12 +271,13 @@ function showDay(i,keep){
   CURI=i;
   const d=DAYS[i];
   document.querySelectorAll('#dayPills button').forEach((b,j)=>b.classList.toggle('on',j===i));
+  $('upHead').innerHTML=`<span class="venchip">${VN}</span> ${md(d.date)}の${d.kind==='up'?'予想':'結果'}`;
   $('raceList').innerHTML=d.races.map(r=>raceCard(r,d.kind)).join('')||'<p class="sub">レースがありません</p>';
   open.forEach(n=>{const e=document.querySelector(`#raceList details[data-no="${n}"]`);if(e)e.open=true});
-  // 今日のポイント: 自信度の高いレース(◎の確率が60%以上)と、荒れそうなレース(45%未満)
+  // ポイント: 自信度の高いレース(◎の確率が60%以上)と、荒れそうなレース(45%未満)
   const hi=[],lo=[];
   for(const r of d.races){const q=sorted(r)[0].q;(q>=0.6?hi:q<0.45?lo:[]).push(r.race_no+'R')}
-  $('digest').innerHTML=d.kind==='up'?`<div class="digest">📌 <b>今日のポイント</b><br>自信度が高いレース: ${hi.length?hi.join('・'):'なし'}<br>荒れそう(予想が割れている)レース: ${lo.length?lo.join('・'):'なし'}<br><span class="sub">荒れそうなレースは当てにくい分、買わずに見るだけにするのも手です。</span></div>`:'';
+  $('digest').innerHTML=d.kind==='up'?`📌 自信が高い: <b>${hi.length?hi.join('・'):'なし'}</b> ／ 荒れそう: <b>${lo.length?lo.join('・'):'なし'}</b>`:'';
 }
 let DAYS=[];
 function buildDays(){
@@ -275,23 +308,32 @@ function initNext(){
   if(!n||!n.title){c.style.display='none';return}
   const t=new Date(n.from+'T00:00:00'),days=Math.round((t-new Date(new Date().toDateString()))/86400000);
   const rs=(n.racers||[]).slice(0,30);
-  let h=`<h2>次の開催の下見</h2><div class="sub"><b>${n.grade||''} ${n.title}</b><br>${n.from} 〜 ${n.to||''}${days>0?`(あと${days}日)`:''} / 出場予定 ${(n.racers||[]).length}人</div>`;
+  let h=`<h2>次の開催の下見</h2><div class="sub"><b>${n.grade||''} ${n.title}</b><br>${md(n.from)} 〜 ${md(n.to||n.from)}${days>0?`(あと${days}日)`:''} / 出場予定 ${(n.racers||[]).length}人</div>`;
   h+=`<p class="sub">番組表(何号艇に誰が乗るか)は、開催の前日の午後に出ます。それまでは出場予定の選手だけ分かるので、強そうな順に並べました。番組表が出たら、自動でレースごとの予想に切り替わります。</p>`;
   if(rs.length){
-    h+=`<div style="overflow-x:auto"><table style="white-space:nowrap"><tr><th class="name">選手</th><th>級</th><th>全国勝率</th><th>平均ST</th><th>${VN}の1着率</th><th>1コースの1着率</th></tr>`;
+    h+=`<details><summary>出場予定の選手(強そうな順 ${rs.length}人)</summary><div style="overflow-x:auto"><table><tr><th class="name">選手</th><th>級</th><th>全国勝率</th><th>平均ST</th><th>${VN}の1着率</th><th>1コースの1着率</th></tr>`;
     for(const r of rs)h+=`<tr><td class="name" style="white-space:nowrap">${r.name}</td><td>${r.cls}</td><td>${r.win!=null?r.win.toFixed(2):'-'}</td><td>${r.st!=null?r.st.toFixed(2):'-'}</td><td>${r.m_w1!=null?pc(r.m_w1,0)+`<small>(${r.m_n}走)</small>`:'-'}</td><td>${r.c1w!=null?pc(r.c1w,0):'-'}</td></tr>`;
-    h+=`</table></div><p class="sub">全国勝率=公式の直近半年の成績。1コースの1着率=その半年に1号艇で走ったときの1着の割合(5走以上のとき)。${VN}の1着率=2024年以降の${VN}での成績(6走以上)。上位30人まで表示。</p>`;
+    h+=`</table></div><p class="sub">全国勝率=公式の直近半年の成績。1コースの1着率=その半年に1号艇で走ったときの1着の割合(5走以上のとき)。${VN}の1着率=2024年以降の${VN}での成績(6走以上)。上位30人まで表示。</p></details>`;
   }
-  if((n.later||[]).length)h+=`<div class="sub">その次: ${n.later.map(x=>`${x.from.slice(5).replace('-','/')} ${x.title}`).join(' / ')}</div>`;
+  if((n.later||[]).length)h+=`<div class="sub" style="margin-top:8px">その次: ${n.later.map(x=>`${md(x.from)} ${x.title}`).join(' / ')}</div>`;
   c.innerHTML=h;c.style.display='';
-  if(!D.upcoming.length){const sec=$('t-up');sec.insertBefore(c,sec.firstChild)}  // 開催がない間は、いちばん上に出す
+  if(!D.upcoming.length){$('t-up').insertBefore(c,$('altBanner').nextSibling)}  // 開催がない間は、ご案内の次(上の方)に出す
+}
+// この会場が休みのとき、開催中の会場へ案内する
+function initAlt(up){
+  const box=$('altBanner');box.innerHTML='';
+  if(up.length||!SUM||!SUM.venues)return;
+  const open=ORDER.filter(k=>k!==V&&/あり/.test(venStatus(k)));
+  if(!open.length)return;
+  box.innerHTML=`<div class="alt"><b>${VN}は今日・明日お休みです。</b><br>開催中の会場: ${open.map(k=>`<button onclick="try{localStorage.setItem('boatV','${k}')}catch(e){};location.search='?v=${k}'">${VENS[k]}(${venStatus(k)})を見る</button>`).join('')}</div>`;
 }
 function initUp(){
   initNext();
   const up=buildDays();
+  initAlt(up);
   const ex=D.upcoming.some(r=>r.live&&r.live.boats!==undefined||r.boats.some(b=>b.px!=null));
-  $('upMeta').innerHTML=up.length?`レースをタップすると、くわしい予想と買い目が開きます。<br><b>${D.live_asof?D.live_asof+' 時点':'(展示・オッズはまだ)'}</b>の予想です。${ex?'展示タイムが出たレースは、展示を反映した予想になっています。':'展示タイムは各レースの直前に出ます。'}`:(D.next&&D.next.title?`いま${VN}は開催していません。次は <b>${D.next.from.slice(5).replace('-','/')} から</b>です(下に下見があります)。`:'次の開催の番組表はまだ出ていません(前日の午後に出ます)。')+'下は直近の結果です。';
-  if(DAYS.length)showDay(0);
+  $('upMeta').innerHTML=up.length?`レースをタップすると、くわしい予想と買い目が開きます。${D.live_asof?D.live_asof+' 時点':'(展示・オッズはまだ)'}の予想です。${ex?'展示タイムが出たレースは、展示を反映しています。':'展示タイムは各レースの直前に出ます。'}`:(D.next&&D.next.title?`いま${VN}は開催していません。次は <b>${md(D.next.from)} から</b>です。下は直近の結果です。`:'次の開催の番組表はまだ出ていません(前日の午後に出ます)。下は直近の結果です。');
+  if(DAYS.length)showDay(0);else $('upHead').innerHTML=`<span class="venchip">${VN}</span> レース予想`;
   pollResults();setInterval(()=>{if(!document.hidden)pollResults()},60000);
 }
 function fillSel(sel,vals,fmt){sel.innerHTML=vals.map(v=>`<option value="${v}">${fmt?fmt(v):v}</option>`).join('')}
@@ -368,14 +410,21 @@ function showPast(){
   $('paBox').innerHTML=h;
 }
 function initPast(){
-  const days=[...new Set(D.browse.map(r=>r.date))];fillSel($('paDay'),days);
+  const days=[...new Set(D.browse.map(r=>r.date))];fillSel($('paDay'),days,md);
   const upd=()=>{fillSel($('paRace'),D.browse.filter(r=>r.date===$('paDay').value).map(r=>r.race_no).sort((a,b)=>a-b),n=>n+'R');showPast()};
   $('paDay').onchange=upd;$('paRace').onchange=showPast;upd();
 }
-fetch(V==='15'?'data.json':`data_${V}.json`).then(r=>{if(!r.ok)throw new Error(VN+'のデータはまだありません');return r.json()}).then(d=>{D=d;
-  $('meta').textContent=`作成 ${d.built} / 最新の結果 ${d.last_result}`;
-  initUp();initEval();initOdds();initFwd();initTrend();initPl();initPast();
-}).catch(e=>{$('meta').textContent='データを読み込めませんでした: '+e});
+async function boot(){
+  try{SUM=await (await fetch('summary.json')).json();buildVenueSelect()}catch(e){}  // 会場リストに開催状況を足す(取れなくても動く)
+  try{
+    const r=await fetch(V==='15'?'data.json':`data_${V}.json`);
+    if(!r.ok)throw new Error(VN+'のデータはまだありません');
+    D=await r.json();
+    $('meta').textContent=`最新の結果 ${md(D.last_result)}`;
+    initUp();initEval();initOdds();initFwd();initTrend();initPl();initPast();
+  }catch(e){$('meta').textContent='データを読み込めませんでした: '+e}
+}
+boot();
 </script>
 </body>
 </html>

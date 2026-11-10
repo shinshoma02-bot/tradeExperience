@@ -222,3 +222,37 @@ def test_parse_program_other_venue_name():
             "   1R  予選  H1800m  電話投票締切予定08:35\n")
     assert parse.parse_b(text, D, "鳴門")[0][0]["title"] == "テスト記念"
     assert parse.parse_b(text, D, "丸亀")[0][0]["title"] == ""  # 他の場の名前では拾わない
+
+
+def test_write_summary_and_route(tmp_path, monkeypatch):
+    """会場リスト用の軽い一覧(summary.json)と、そのGitHub中継+フォールバック。"""
+    import json
+
+    import httpx
+    from fastapi.testclient import TestClient
+
+    from app.config import Settings
+    from app.main import create_app
+    from boat import venues
+
+    d = model.write_summary()
+    assert set(d["venues"]) == set(venues.VENUES)
+    for v in d["venues"].values():
+        assert {"name", "days", "next", "last_result"} <= set(v)
+    assert json.loads((model.HERE / "site" / "summary.json").read_text(encoding="utf-8")) == d
+
+    class R:
+        status_code = 200
+        content = b'{"venues": {"X": 1}}'
+
+    def make():
+        return TestClient(create_app(Settings(webhook_secret="x", journal_path=str(tmp_path / "j.jsonl"))))
+
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: R())
+    assert make().get("/boat/summary.json").json() == {"venues": {"X": 1}}
+
+    def boom(*a, **k):
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr(httpx, "get", boom)
+    assert "venues" in make().get("/boat/summary.json").json()  # 取れないときは同梱のもの

@@ -16,7 +16,7 @@ python -m boat.model > /tmp/boat_model.log 2>&1 || { tail -20 /tmp/boat_model.lo
 tail -3 /tmp/boat_model.log
 python -m boat.cache pack
 python -m boat.odds_hist pack
-git add boat/site/data*.json boat/site/live*.json boat/site/next*.json boat/data
+git add boat/site/data*.json boat/site/live*.json boat/site/next*.json boat/site/summary.json boat/data
 # 直近(今日・明日)に、どの場にもレースが1つも無ければ、更新してもコミットしない
 RACES=$(python -c 'import glob, json; print(sum(len(d["races"]) for f in glob.glob("boat/site/live*.json") for d in json.load(open(f))["days"]))')
 # (次の開催の下見 next.json と期別成績 fan が変わったときだけは、開催なしの日でもコミットする)

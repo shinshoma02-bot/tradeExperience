@@ -454,6 +454,10 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
     def boat_data():
         return boat_json("data.json")
 
+    @app.get("/boat/summary.json", include_in_schema=False)  # 会場リスト用の軽い開催状況
+    def boat_summary():
+        return boat_json("summary.json")
+
     @app.get("/boat/data_{venue}.json", include_in_schema=False)  # 鳴門 data_14.json など
     def boat_data_venue(venue: str):
         from fastapi import HTTPException
