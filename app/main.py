@@ -485,6 +485,11 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
             pass
         return JSONResponse(boat_live.results_for_today(races, venue=v), headers={"Cache-Control": "no-cache"})
 
+    @app.get("/robots.txt", include_in_schema=False)  # 公式データの利用許諾が取れるまで、検索エンジンに載せない
+    def robots():
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse("User-agent: *\nDisallow: /boat/\n")
+
     if boat_site.is_dir():
         app.mount("/boat", StaticFiles(directory=boat_site, html=True), name="boat")
 
