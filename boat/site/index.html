@@ -269,12 +269,13 @@ function initNext(){
   let h=`<h2>次の開催の下見</h2><div class="sub"><b>${n.grade||''} ${n.title}</b><br>${n.from} 〜 ${n.to||''}${days>0?`(あと${days}日)`:''} / 出場予定 ${(n.racers||[]).length}人</div>`;
   h+=`<p class="sub">番組表(何号艇に誰が乗るか)は、開催の前日の午後に出ます。それまでは出場予定の選手だけ分かるので、強そうな順に並べました。番組表が出たら、自動でレースごとの予想に切り替わります。</p>`;
   if(rs.length){
-    h+=`<div style="overflow-x:auto"><table><tr><th class="name">選手</th><th>級</th><th>全国勝率</th><th>平均ST</th><th>丸亀の1着率</th><th>1コースの1着率</th></tr>`;
-    for(const r of rs)h+=`<tr><td class="name">${r.name}</td><td>${r.cls}</td><td>${r.win!=null?r.win.toFixed(2):'-'}</td><td>${r.st!=null?r.st.toFixed(2):'-'}</td><td>${r.m_w1!=null?pc(r.m_w1,0)+`<small>(${r.m_n}走)</small>`:'-'}</td><td>${r.c1w!=null?pc(r.c1w,0):'-'}</td></tr>`;
+    h+=`<div style="overflow-x:auto"><table style="white-space:nowrap"><tr><th class="name">選手</th><th>級</th><th>全国勝率</th><th>平均ST</th><th>丸亀の1着率</th><th>1コースの1着率</th></tr>`;
+    for(const r of rs)h+=`<tr><td class="name" style="white-space:nowrap">${r.name}</td><td>${r.cls}</td><td>${r.win!=null?r.win.toFixed(2):'-'}</td><td>${r.st!=null?r.st.toFixed(2):'-'}</td><td>${r.m_w1!=null?pc(r.m_w1,0)+`<small>(${r.m_n}走)</small>`:'-'}</td><td>${r.c1w!=null?pc(r.c1w,0):'-'}</td></tr>`;
     h+=`</table></div><p class="sub">全国勝率=公式の直近半年の成績。1コースの1着率=その半年に1号艇で走ったときの1着の割合(5走以上のとき)。丸亀の1着率=2024年以降の丸亀での成績(6走以上)。上位30人まで表示。</p>`;
   }
   if((n.later||[]).length)h+=`<div class="sub">その次: ${n.later.map(x=>`${x.from.slice(5).replace('-','/')} ${x.title}`).join(' / ')}</div>`;
   c.innerHTML=h;c.style.display='';
+  if(!D.upcoming.length){const sec=$('t-up');sec.insertBefore(c,sec.firstChild)}  // 開催がない間は、いちばん上に出す
 }
 function initUp(){
   initNext();
