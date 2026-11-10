@@ -432,39 +432,54 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
     # 丸亀ボート予想サイト(/boat/)。予想データ(data.json)は定期更新のたびにGitHubへpushされるので、
     # Deployし直さなくても最新が出るよう、GitHubから取って1分キャッシュする(取れなければ同梱のデータ)
     boat_site = Path(__file__).resolve().parent.parent / "boat" / "site"
-    boat_cache: dict = {"t": 0.0, "body": None}
+    boat_cache: dict = {}  # ファイル名 -> {"t": 取得時刻, "body": 中身}
     boat_raw = ("https://raw.githubusercontent.com/shinshoma02-bot/tradeExperience/"
-                "claude/trading-skeleton/boat/site/data.json")
+                "claude/trading-skeleton/boat/site/")
 
-    @app.get("/boat/data.json", include_in_schema=False)
-    def boat_data():
+    def boat_json(fname: str):
         from fastapi.responses import FileResponse, Response
-        if boat_cache["body"] is None or time.time() - boat_cache["t"] > 60:
+        c = boat_cache.setdefault(fname, {"t": 0.0, "body": None})
+        if c["body"] is None or time.time() - c["t"] > 60:
             try:
-                r = httpx.get(boat_raw, timeout=10)
+                r = httpx.get(boat_raw + fname, timeout=10)
                 if r.status_code == 200 and r.content.startswith(b"{"):
-                    boat_cache["body"], boat_cache["t"] = r.content, time.time()
+                    c["body"], c["t"] = r.content, time.time()
             except httpx.HTTPError:
                 pass
-        if boat_cache["body"] is not None:
-            return Response(boat_cache["body"], media_type="application/json",
-                            headers={"Cache-Control": "no-cache"})
-        return FileResponse(boat_site / "data.json", media_type="application/json")
+        if c["body"] is not None:
+            return Response(c["body"], media_type="application/json", headers={"Cache-Control": "no-cache"})
+        return FileResponse(boat_site / fname, media_type="application/json")
+
+    @app.get("/boat/data.json", include_in_schema=False)  # 丸亀(既定)
+    def boat_data():
+        return boat_json("data.json")
+
+    @app.get("/boat/data_{venue}.json", include_in_schema=False)  # 鳴門 data_14.json など
+    def boat_data_venue(venue: str):
+        from fastapi import HTTPException
+
+        from app import boat_live
+        if venue not in boat_live.VENUES or venue == "15":
+            raise HTTPException(404)
+        return boat_json(f"data_{venue}.json")
 
     @app.get("/boat/results.json", include_in_schema=False)
-    def boat_results():
-        """今日のレースで、終わったものの結果(公式の結果ページから。サーバー側でキャッシュ)。"""
+    def boat_results(v: str = "15"):
+        """今日のレースで、終わったものの結果(公式の結果ページから。サーバー側でキャッシュ)。v=場コード。"""
+        from fastapi import HTTPException
         from fastapi.responses import JSONResponse
 
         from app import boat_live
+        if v not in boat_live.VENUES:
+            raise HTTPException(404)
         races: list = []
         try:
-            data = json.loads(boat_data().body)
+            data = json.loads(boat_json("data.json" if v == "15" else f"data_{v}.json").body)
             races = [{"date": c["date"], "race_no": c["race_no"], "close": c.get("close")}
                      for c in data.get("upcoming", [])]
         except Exception:
             pass
-        return JSONResponse(boat_live.results_for_today(races), headers={"Cache-Control": "no-cache"})
+        return JSONResponse(boat_live.results_for_today(races, venue=v), headers={"Cache-Control": "no-cache"})
 
     if boat_site.is_dir():
         app.mount("/boat", StaticFiles(directory=boat_site, html=True), name="boat")

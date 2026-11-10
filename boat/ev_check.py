@@ -12,8 +12,8 @@ from boat import model as M
 from boat import odds_hist
 
 
-def run(P1, T, meta, races) -> dict:
-    odds = odds_hist.load()
+def run(P1, T, meta, races, venue: str = "15") -> dict:
+    odds = odds_hist.load(venue)
     m = meta.merge(races, on=["date", "race_no"], how="left")
     ok = (~np.isnan(P1[:, 0]) & (m["w1"] >= 0).values & m["win_pay"].notna().values & m["3連単_combo"].notna().values)
     rows = [i for i in np.where(ok)[0] if (str(m.at[i, "date"].date()), int(m.at[i, "race_no"])) in odds

@@ -1,8 +1,8 @@
-"""ボートレース公式の過去データ(番組表B・競走成績K)から丸亀(場コード15)だけ抜き出して保存する。
+"""ボートレース公式の過去データ(番組表B・競走成績K)から対象の場(boat/venues.py: 丸亀・鳴門・児島)だけ抜き出して保存する。
 
 - 取得元: https://www1.mbrace.or.jp/od2/{B,K}/YYYYMM/{b,k}YYMMDD.lzh (robots.txt は全許可)
   それでも1秒あけて、同じ日は二度取らない(取得済みはキャッシュ)
-- 1日分のファイルは全24場ぶんが入っているので、丸亀のブロックだけ boat/_cache/ に保存(git管理外)
+- 1日分のファイルは全24場ぶんが入っているので、対象の場のブロックだけ boat/_cache/(丸亀)・boat/_cache/<場コード>/ に保存(git管理外)。1回のダウンロードで全場ぶん取る
 - 開催のない日は空ファイルを置く(次回から取りに行かない)
 使い方: python -m boat.scrape 2023-01-01 2026-11-04
 """
@@ -19,12 +19,13 @@ from pathlib import Path
 import lhafile
 import requests
 
+from boat import venues
+
 BASE = "https://www1.mbrace.or.jp/od2"
 HERE = Path(__file__).parent
 CACHE = HERE / "_cache"
 UA = "tradeExperience-boat-research/0.1 (personal study; 1 req/sec)"
 DELAY = 1.0
-VENUE = "15"  # 丸亀
 
 _last = 0.0
 _lock = threading.Lock()
@@ -74,9 +75,9 @@ def get_html(url: str) -> str:
     return ""
 
 
-def venue_block(text: str, kind: str) -> str:
-    """全場ぶんのテキストから丸亀のブロック(24BBGN〜24BEND など)を取り出す。"""
-    beg, end = f"{VENUE}{kind}BGN", f"{VENUE}{kind}END"
+def venue_block(text: str, kind: str, venue: str = venues.DEFAULT) -> str:
+    """全場ぶんのテキストから、その場のブロック(15BBGN〜15BEND など)を取り出す。"""
+    beg, end = f"{venue}{kind}BGN", f"{venue}{kind}END"
     i = text.find(beg)
     if i < 0:
         return ""
@@ -84,37 +85,48 @@ def venue_block(text: str, kind: str) -> str:
     return text[i : (j + len(end) if j >= 0 else len(text))]
 
 
-def extract(raw: bytes, kind: str) -> str:
+def extract(raw: bytes, kind: str, vs=None) -> dict[str, str]:
+    """{場コード: ブロック}(その日その場の開催が無ければ空文字)。"""
+    vs = list(vs or venues.VENUES)
     z = lhafile.Lhafile(io.BytesIO(raw))
     for info in z.infolist():
         text = z.read(info.filename).decode("cp932", "ignore")
-        return venue_block(text, kind)
-    return ""
+        return {v: venue_block(text, kind, v) for v in vs}
+    return {v: "" for v in vs}
 
 
-def get_day(kind: str, d: date, today: date) -> str:
-    f = CACHE / f"{kind}{d:%Y%m%d}.txt"
+def get_day(kind: str, d: date, today: date, vs=None) -> dict[str, str]:
+    """1日ぶんを取る(全場まとめて1回のダウンロード)。{場コード: ブロック} を返す。"""
+    vs = list(vs or venues.VENUES)
+    recent = (today - d).days <= 3
     # 結果(K)は開催日の途中や当日に取ると未完成のことがある。直近の日は毎回取り直す
     recent_k = kind == "K" and (today - d).days <= 2
-    recent = (today - d).days <= 3
-    # 直近で中身が空のキャッシュは、前の取得が早すぎたものなので取り直す
-    stale_empty = recent and f.exists() and f.stat().st_size == 0
-    if f.exists() and not recent_k and not stale_empty:
-        return f.read_text(encoding="utf-8")
+    out: dict[str, str] = {}
+    need = []
+    for v in vs:
+        f = venues.cache_dir(v) / f"{kind}{d:%Y%m%d}.txt"
+        # 直近で中身が空のキャッシュは、前の取得が早すぎたものなので取り直す
+        stale_empty = recent and f.exists() and f.stat().st_size == 0
+        if f.exists() and not recent_k and not stale_empty:
+            out[v] = f.read_text(encoding="utf-8")
+        else:
+            need.append(v)
+    if not need:
+        return out
     raw = fetch_lzh(kind, d)
-    if raw is None:
-        # 直近は「まだ公開されていない」だけかもしれないので、キャッシュしない
-        if (today - d).days > 3:
-            CACHE.mkdir(exist_ok=True)
-            f.write_text("", encoding="utf-8")
-        return ""
-    block = extract(raw, kind)
-    # 直近の日は、丸亀のブロックがまだ入っていないだけのことがある。空なら保存しない(次回また取り直す)
-    if not block and (today - d).days <= 3:
-        return ""
-    CACHE.mkdir(exist_ok=True)
-    f.write_text(block, encoding="utf-8")
-    return block
+    blocks = extract(raw, kind, need) if raw is not None else {v: "" for v in need}
+    for v in need:
+        block = blocks.get(v, "")
+        out[v] = block
+        # 直近は「まだ公開されていない」「その場のブロックがまだ入っていない」だけかもしれないので、空はキャッシュしない
+        if not block and recent:
+            continue
+        if raw is None and recent:
+            continue
+        f = venues.cache_dir(v) / f"{kind}{d:%Y%m%d}.txt"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(block, encoding="utf-8")
+    return out
 
 
 def main(a: date, b: date) -> None:

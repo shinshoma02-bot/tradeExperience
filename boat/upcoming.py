@@ -1,7 +1,7 @@
-"""開催前の丸亀について、公式サイトの直前情報(展示タイム・天候・オッズ)を取る。
+"""開催前のレースについて、公式サイトの直前情報(展示タイム・天候・オッズ)を場ごとに取る(boat/venues.py の全場)。
 
 - 番組表(B)は前日の午後に出る。展示タイムは各レースの約10〜15分前、オッズは発売開始後に出る
-- 取れたものだけを boat/site/live.json に保存(取れなかった項目は欠ける。モデル側は欠けても動く)
+- 取れたものだけを boat/site/live.json(丸亀)・live_14.json(鳴門)などに保存(取れなかった項目は欠ける。モデル側は欠けても動く)
 - 使い方: python -m boat.upcoming [YYYY-MM-DD ...]   (日付を省略すると 今日と明日)
 """
 from __future__ import annotations
@@ -15,25 +15,26 @@ from pathlib import Path
 
 from bs4 import BeautifulSoup
 
-from boat import scrape
+from boat import scrape, venues
 
-JCD = "15"  # 丸亀
+JCD = venues.DEFAULT  # 既定の場(丸亀)。他の場は関数の venue 引数で指定
 BASE = "https://www.boatrace.jp/owpc/pc/race"
 OUT = Path(__file__).parent / "site" / "live.json"
 JST = timezone(timedelta(hours=9))
 
 
 def refresh_programs(days: list[date]) -> None:
-    """今日以降の番組表は(出走変更があり得るので)キャッシュを捨てて取り直す。"""
+    """今日以降の番組表は(出走変更があり得るので)全場ぶんキャッシュを捨てて、1回のダウンロードで取り直す。"""
     for d in days:
-        f = scrape.CACHE / f"B{d:%Y%m%d}.txt"
-        if f.exists():
-            f.unlink()
+        for v in venues.VENUES:
+            f = venues.cache_dir(v) / f"B{d:%Y%m%d}.txt"
+            if f.exists():
+                f.unlink()
         scrape.get_day("B", d, date.today())
 
 
-def _url(page: str, d: date, rno: int) -> str:
-    return f"{BASE}/{page}?rno={rno}&jcd={JCD}&hd={d:%Y%m%d}"
+def _url(page: str, d: date, rno: int, venue: str = JCD) -> str:
+    return f"{BASE}/{page}?rno={rno}&jcd={venue}&hd={d:%Y%m%d}"
 
 
 def parse_before(html: str) -> dict:
@@ -105,15 +106,15 @@ def parse_result(html: str) -> dict:
     return parse_result_text(page_text(html)) if html else {}
 
 
-def fetch_day(d: date) -> dict:
+def fetch_day(d: date, venue: str = JCD) -> dict:
     def one(rno: int) -> dict:
         r = {"race_no": rno}
-        before = parse_before(scrape.get_html(_url("beforeinfo", d, rno)))
+        before = parse_before(scrape.get_html(_url("beforeinfo", d, rno, venue)))
         r.update(before)
-        r["win_odds"] = parse_win_odds(scrape.get_html(_url("oddstf", d, rno)))
-        r["odds3t"] = parse_3t(scrape.get_html(_url("odds3t", d, rno)))
+        r["win_odds"] = parse_win_odds(scrape.get_html(_url("oddstf", d, rno, venue)))
+        r["odds3t"] = parse_3t(scrape.get_html(_url("odds3t", d, rno, venue)))
         if d <= datetime.now(JST).date():  # 当日のレースは、終わっていれば結果ページから結果を取る
-            res = parse_result(scrape.get_html(_url("raceresult", d, rno)))
+            res = parse_result(scrape.get_html(_url("raceresult", d, rno, venue)))
             if res:
                 r["result"] = res
         return r
@@ -122,15 +123,14 @@ def fetch_day(d: date) -> dict:
         return {"date": str(d), "races": list(ex.map(one, range(1, 13)))}
 
 
-NEXT = Path(__file__).parent / "site" / "next.json"
 _GRADE = {"SG": "SG", "PG1": "PG1", "G1": "G1", "G2": "G2", "G3": "G3", "Ippan": "一般"}
 
 
-def parse_schedule(html: str) -> list[dict]:
-    """月間スケジュールの丸亀の行から、これから始まる開催(出場予定選手のページがあるもの)を取る。"""
+def parse_schedule(html: str, venue: str = JCD) -> list[dict]:
+    """月間スケジュールのその場の行から、これから始まる開催(出場予定選手のページがあるもの)を取る。"""
     out = []
     for tr in BeautifulSoup(html, "html.parser").find_all("tr"):
-        if not tr.find("a", href=re.compile(rf"stadium\?jcd={JCD}\b")):
+        if not tr.find("a", href=re.compile(rf"stadium\?jcd={venue}\b")):
             continue
         for td in tr.find_all("td"):
             a = td.find("a", href=re.compile(r"/race/assen\?"))
@@ -155,12 +155,22 @@ def parse_assen(html: str) -> dict:
     return out
 
 
-def next_series(today: date) -> dict:
-    """次の開催の下見(next.json)。番組表が出る前でも、開催名・日程・出場予定選手は分かる。"""
+_SCHED: dict[str, str] = {}  # 月間スケジュールは全場で同じページ。1回の実行で1か月1回だけ取る
+
+
+def _schedule_html(ym: str) -> str:
+    if ym not in _SCHED:
+        _SCHED[ym] = scrape.get_html(f"{BASE}/monthlyschedule?ym={ym}")
+    return _SCHED[ym]
+
+
+def next_series(today: date, venue: str = JCD) -> dict:
+    """次の開催の下見(next.json / next_14.json)。番組表が出る前でも、開催名・日程・出場予定選手は分かる。"""
+    NEXT = venues.site_file("next", venue)
     found: list[dict] = []
     for k in (0, 1):
         y, mth = today.year + (today.month + k - 1) // 12, (today.month + k - 1) % 12 + 1
-        found += parse_schedule(scrape.get_html(f"{BASE}/monthlyschedule?ym={y}{mth:02d}"))
+        found += parse_schedule(_schedule_html(f"{y}{mth:02d}"), venue)
     seen, later = set(), []
     for x in sorted(found, key=lambda x: x["from"]):
         if x["from"] >= str(today) and x["from"] not in seen:
@@ -169,7 +179,7 @@ def next_series(today: date) -> dict:
     nx: dict = {}
     if later:
         nx = dict(later[0])
-        nx.update(parse_assen(scrape.get_html(f"{BASE}/assen?jcd={JCD}&hd={nx['from'].replace('-', '')}")))
+        nx.update(parse_assen(scrape.get_html(f"{BASE}/assen?jcd={venue}&hd={nx['from'].replace('-', '')}")))
         nx["later"] = later[1:4]
     old = json.loads(NEXT.read_text(encoding="utf-8")) if NEXT.exists() else None
     if nx != old and (nx or old is None):  # 取得に失敗したときは前のを残す
@@ -177,14 +187,19 @@ def next_series(today: date) -> dict:
     return nx
 
 
-def main(days: list[date]) -> dict:
+def main(days: list[date], vs=None) -> dict[str, dict]:
+    """{場コード: live}。番組表は全場まとめて取り直し、場ごとに直前情報を取って live(.json) に保存する。"""
     refresh_programs(days)
-    # 丸亀の番組が無い日(開催なし)は、レースの箱だけ作って空の予想を出さない
-    held = [d for d in days if scrape.get_day("B", d, date.today())]
-    live = {"asof": datetime.now(JST).strftime("%Y-%m-%d %H:%M"), "days": [fetch_day(d) for d in held]}
-    OUT.parent.mkdir(exist_ok=True)
-    OUT.write_text(json.dumps(live, ensure_ascii=False), encoding="utf-8")
-    return live
+    out = {}
+    for v in (vs or venues.VENUES):
+        # その場の番組が無い日(開催なし)は、レースの箱だけ作って空の予想を出さない
+        held = [d for d in days if scrape.get_day("B", d, date.today(), [v]).get(v)]
+        live = {"asof": datetime.now(JST).strftime("%Y-%m-%d %H:%M"), "days": [fetch_day(d, v) for d in held]}
+        f = venues.site_file("live", v)
+        f.parent.mkdir(exist_ok=True)
+        f.write_text(json.dumps(live, ensure_ascii=False), encoding="utf-8")
+        out[v] = live
+    return out
 
 
 if __name__ == "__main__":
@@ -193,11 +208,15 @@ if __name__ == "__main__":
     else:
         t = datetime.now(JST).date()
         ds = [t, t + timedelta(days=1)]
-    live = main(ds)
-    nx = next_series(datetime.now(JST).date())
-    if nx:
-        print("次の開催:", nx.get("grade"), nx.get("title"), nx.get("from"), "〜", nx.get("to"), f"{len(nx.get('racers', []))}人")
-    for dd in live["days"]:
-        n = sum(1 for r in dd["races"] if r.get("boats"))
-        o = sum(1 for r in dd["races"] if r.get("odds3t"))
-        print(dd["date"], f"展示あり{n}R / 3連単オッズあり{o}R")
+    lives = main(ds)
+    for v, live in lives.items():
+        nx = next_series(datetime.now(JST).date(), v)
+        print(f"[{venues.VENUES[v]}]", end=" ")
+        if nx:
+            print("次の開催:", nx.get("grade"), nx.get("title"), nx.get("from"), "〜", nx.get("to"), f"{len(nx.get('racers', []))}人")
+        else:
+            print("次の開催: 未定")
+        for dd in live["days"]:
+            n = sum(1 for r in dd["races"] if r.get("boats"))
+            o = sum(1 for r in dd["races"] if r.get("odds3t"))
+            print("  ", dd["date"], f"展示あり{n}R / 3連単オッズあり{o}R")

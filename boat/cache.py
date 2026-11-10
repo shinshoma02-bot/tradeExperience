@@ -12,12 +12,15 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+from boat import venues
+
 HERE = Path(__file__).parent
-CACHE = HERE / "_cache"
-RAW = HERE / "data" / "raw"
 
 
-def pack() -> int:
+def pack(venue: str | None = None) -> int:
+    if venue is None:
+        return sum(pack(v) for v in venues.VENUES)
+    CACHE, RAW = venues.cache_dir(venue), venues.raw_dir(venue)
     groups: dict[str, dict[str, str]] = defaultdict(dict)
     for f in sorted(CACHE.glob("[BK]*.txt")):
         d = f.stem[1:]
@@ -33,8 +36,11 @@ def pack() -> int:
     return changed
 
 
-def unpack() -> int:
-    CACHE.mkdir(exist_ok=True)
+def unpack(venue: str | None = None) -> int:
+    if venue is None:
+        return sum(unpack(v) for v in venues.VENUES)
+    CACHE, RAW = venues.cache_dir(venue), venues.raw_dir(venue)
+    CACHE.mkdir(parents=True, exist_ok=True)
     n = 0
     for f in sorted(RAW.glob("*.json.gz")):
         for name, text in json.loads(gzip.decompress(f.read_bytes()).decode("utf-8")).items():

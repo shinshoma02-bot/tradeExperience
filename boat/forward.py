@@ -15,6 +15,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from boat.venues import DEFAULT
+
 # 市場とモデルの混合確率の係数。2025年の前半(過去オッズ収集の前半)だけで決めて固定した。
 # これ以降の記録(前向き)で検証するので、結果を見て変えない。基準の期待値も 1.1 と 1.2 に事前に固定。
 BLEND_MARKET, BLEND_MODEL = 0.5547, 0.5921
@@ -23,15 +25,15 @@ LOG = Path(__file__).parent / "data" / "forward_log.jsonl"
 JST = timezone(timedelta(hours=9))
 
 
-def record(cards: list[dict]) -> int:
-    """オッズが取れているレースだけ記録。戻り値は記録した件数。"""
+def record(cards: list[dict], venue: str = DEFAULT) -> int:
+    """オッズが取れているレースだけ記録。戻り値は記録した件数。venue は場コード(丸亀15)。"""
     rows = []
     now = datetime.now(JST).strftime("%Y-%m-%d %H:%M")
     for c in cards:
         if not (c.get("win_odds") or c.get("ev_all")):
             continue
         rows.append({
-            "logged": now, "date": c["date"], "race_no": c["race_no"],
+            "venue": venue, "logged": now, "date": c["date"], "race_no": c["race_no"],
             "with_ex": c.get("top_x") is not None,
             "p": {b["lane"]: b["px"] if (c.get("top_x") is not None and b.get("px") is not None) else b["p"]
                   for b in c["boats"]},
@@ -46,19 +48,20 @@ def record(cards: list[dict]) -> int:
     return len(rows)
 
 
-def _last_per_race() -> list[dict]:
+def _last_per_race(venue: str = DEFAULT) -> list[dict]:
     if not LOG.exists():
         return []
     last: dict = {}
     for ln in LOG.read_text(encoding="utf-8").splitlines():
         if ln.strip():
             r = json.loads(ln)
-            last[(r["date"], r["race_no"])] = r
+            if r.get("venue", DEFAULT) == venue:  # venue が無い古い行は丸亀
+                last[(r["date"], r["race_no"])] = r
     return list(last.values())
 
 
-def evaluate(races: pd.DataFrame) -> dict:
-    logs = _last_per_race()
+def evaluate(races: pd.DataFrame, venue: str = DEFAULT) -> dict:
+    logs = _last_per_race(venue)
     res = races.dropna(subset=["win_pay"]).copy()
     res["date"] = res["date"].dt.strftime("%Y-%m-%d")
     rmap = res.set_index(["date", "race_no"])
@@ -89,7 +92,7 @@ def evaluate(races: pd.DataFrame) -> dict:
             rets.append(x["win_pay"] / 100.0 if int(x["win_lane"]) == int(fav) else 0.0)
     add("単勝: 一番人気(基準)", rets, n)
     # 単勝: 市場(オッズ)とモデルの混合確率 × オッズ >= 基準(係数・基準は事前に固定)
-    for th in BLEND_THRESHOLDS:
+    for th in (BLEND_THRESHOLDS if venue == DEFAULT else ()):  # 係数は丸亀で決めたもの。他の場は別に決めるまで評価しない
         rets, n = [], 0
         for r, x in done:
             wo = {int(k): v for k, v in r["win_odds"].items()}

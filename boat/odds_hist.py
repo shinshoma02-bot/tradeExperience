@@ -16,36 +16,35 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
 
-from boat import scrape, upcoming
+from boat import scrape, upcoming, venues
+from boat.venues import DEFAULT
 
 HERE = Path(__file__).parent
-CACHE = HERE / "_cache" / "odds"
-PACK = HERE / "data" / "odds"
 
 
-def racing_days(start: date) -> list[date]:
-    """結果ファイル(K)が空でない日 = 丸亀の開催日。新しい順。"""
+def racing_days(start: date, venue: str = DEFAULT) -> list[date]:
+    """結果ファイル(K)が空でない日 = その場の開催日。新しい順。"""
     days = []
-    for f in scrape.CACHE.glob("K*.txt"):
+    for f in venues.cache_dir(venue).glob("K*.txt"):
         d = date(int(f.stem[1:5]), int(f.stem[5:7]), int(f.stem[7:9]))
         if d >= start and f.stat().st_size > 0:
             days.append(d)
     return sorted(days, reverse=True)
 
 
-def fetch_one(job: tuple[date, int]) -> None:
-    d, rno = job
-    f = CACHE / f"{d:%Y%m%d}_{rno:02d}.json"
+def fetch_one(job: tuple[date, int, str]) -> None:
+    d, rno, venue = job
+    f = venues.odds_cache(venue) / f"{d:%Y%m%d}_{rno:02d}.json"
     if f.exists():
         return
-    win = upcoming.parse_win_odds(scrape.get_html(upcoming._url("oddstf", d, rno)))
-    o3 = upcoming.parse_3t(scrape.get_html(upcoming._url("odds3t", d, rno)))
+    win = upcoming.parse_win_odds(scrape.get_html(upcoming._url("oddstf", d, rno, venue)))
+    o3 = upcoming.parse_3t(scrape.get_html(upcoming._url("odds3t", d, rno, venue)))
     f.write_text(json.dumps({"win": win, "o3": o3}, ensure_ascii=False), encoding="utf-8")
 
 
-def fetch(start: date) -> None:
-    CACHE.mkdir(parents=True, exist_ok=True)
-    jobs = [(d, r) for d in racing_days(start) for r in range(1, 13)]
+def fetch(start: date, venue: str = DEFAULT) -> None:
+    venues.odds_cache(venue).mkdir(parents=True, exist_ok=True)
+    jobs = [(d, r, venue) for d in racing_days(start, venue) for r in range(1, 13)]
     done = 0
     with ThreadPoolExecutor(max_workers=8) as ex:
         for _ in ex.map(fetch_one, jobs):
@@ -54,10 +53,10 @@ def fetch(start: date) -> None:
                 print(done, "/", len(jobs), flush=True)
 
 
-def load() -> dict[tuple[str, int], dict]:
+def load(venue: str = DEFAULT) -> dict[tuple[str, int], dict]:
     """{(日付 'YYYY-MM-DD', レース番号): {'win': {枠: オッズ}, 'o3': {'1-2-3': オッズ}}}"""
     out = {}
-    for f in CACHE.glob("*.json"):
+    for f in venues.odds_cache(venue).glob("*.json"):
         d, r = f.stem.split("_")
         v = json.loads(f.read_text(encoding="utf-8"))
         if v["o3"] or v["win"]:
@@ -65,7 +64,10 @@ def load() -> dict[tuple[str, int], dict]:
     return out
 
 
-def pack() -> int:
+def pack(venue: str | None = None) -> int:
+    if venue is None:
+        return sum(pack(v) for v in venues.VENUES)
+    CACHE, PACK = venues.odds_cache(venue), venues.odds_pack(venue)
     groups: dict[str, dict] = defaultdict(dict)
     for f in sorted(CACHE.glob("*.json")):
         groups[f"{f.stem[:4]}-{f.stem[4:6]}"][f.name] = json.loads(f.read_text(encoding="utf-8"))
@@ -80,7 +82,10 @@ def pack() -> int:
     return n
 
 
-def unpack() -> int:
+def unpack(venue: str | None = None) -> int:
+    if venue is None:
+        return sum(unpack(v) for v in venues.VENUES)
+    CACHE, PACK = venues.odds_cache(venue), venues.odds_pack(venue)
     CACHE.mkdir(parents=True, exist_ok=True)
     n = 0
     for f in sorted(PACK.glob("*.json.gz")):
@@ -95,6 +100,7 @@ def unpack() -> int:
 if __name__ == "__main__":
     cmd = sys.argv[1]
     if cmd == "fetch":
-        fetch(date.fromisoformat(sys.argv[2]) if len(sys.argv) > 2 else date(2025, 1, 1))
+        fetch(date.fromisoformat(sys.argv[2]) if len(sys.argv) > 2 else date(2025, 1, 1),
+              sys.argv[3] if len(sys.argv) > 3 else DEFAULT)  # 例: python -m boat.odds_hist fetch 2025-01-01 14
     else:
         print({"pack": pack, "unpack": unpack}[cmd]())

@@ -191,3 +191,34 @@ def test_fan_parse_and_next_series():
     sch = ('<table><tr><th><a href=/owpc/pc/data/stadium?jcd=15>x</a></th><td class="is-gradeColorG1">'
            '<a href="/owpc/pc/race/assen?jcd=15&hd=20261115">京極賞</a></td></tr></table>')
     assert upcoming.parse_schedule(sch) == [{"title": "京極賞", "from": "2026-11-15", "grade": "G1"}]
+
+
+def test_scrape_all_venues_from_one_download(tmp_path, monkeypatch):
+    """1回のダウンロードで全場ぶんを場ごとの置き場に保存する。直近の空は保存せず、昔の空は保存する。"""
+    from datetime import date
+
+    from boat import scrape, venues
+
+    monkeypatch.setattr(venues, "HERE", tmp_path)
+    calls = []
+    monkeypatch.setattr(scrape, "fetch_lzh", lambda kind, d: (calls.append((kind, d)), b"raw")[1])
+    monkeypatch.setattr(scrape, "extract", lambda raw, kind, vs=None: {"15": "MARUGAME", "14": "NARUTO", "16": ""})
+    today = date(2026, 11, 10)
+    old = scrape.get_day("B", date(2026, 10, 1), today)
+    assert old == {"15": "MARUGAME", "14": "NARUTO", "16": ""} and len(calls) == 1
+    assert (tmp_path / "_cache" / "B20261001.txt").read_text(encoding="utf-8") == "MARUGAME"  # 丸亀は昔からの場所
+    assert (tmp_path / "_cache" / "14" / "B20261001.txt").read_text(encoding="utf-8") == "NARUTO"
+    assert (tmp_path / "_cache" / "16" / "B20261001.txt").exists()  # 昔の日の空=開催なしとして保存
+    scrape.get_day("B", date(2026, 10, 1), today)
+    assert len(calls) == 1  # 全部そろっているので取り直さない
+    scrape.get_day("B", date(2026, 11, 9), today)  # 直近
+    assert (tmp_path / "_cache" / "14" / "B20261109.txt").exists()
+    assert not (tmp_path / "_cache" / "16" / "B20261109.txt").exists()  # 直近の空は保存しない(次回取り直す)
+
+
+def test_parse_program_other_venue_name():
+    """開催名の行は場名ごとに探す(鳴門など、名前に空白が入る書式にも対応)。"""
+    text = ("鳴 門   11月10日  テスト記念   第 2日\n\n"
+            "   1R  予選  H1800m  電話投票締切予定08:35\n")
+    assert parse.parse_b(text, D, "鳴門")[0][0]["title"] == "テスト記念"
+    assert parse.parse_b(text, D, "丸亀")[0][0]["title"] == ""  # 他の場の名前では拾わない

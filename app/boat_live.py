@@ -16,15 +16,16 @@ from datetime import datetime, timedelta, timezone
 import httpx
 
 JST = timezone(timedelta(hours=9))
-URL = "https://www.boatrace.jp/owpc/pc/race/raceresult?rno={rno}&jcd=15&hd={ymd}"
+URL = "https://www.boatrace.jp/owpc/pc/race/raceresult?rno={rno}&jcd={jcd}&hd={ymd}"
+VENUES = ("15", "14", "16")  # 丸亀・鳴門・児島(boat/venues.py と同じ。Flyのイメージには boat/ が入らないので別に持つ)
 UA = "tradeExperience-boat-research/0.1 (personal study; 1 req/sec)"
 WAIT_AFTER_CLOSE_MIN = 3  # 締切からこの分数たったら結果ページを見に行く
 RETRY_SEC = 60
 MAX_FETCH_PER_CALL = 3
 
 _lock = threading.Lock()
-_results: dict[str, dict[int, dict]] = {}  # 日付 -> レース番号 -> 結果
-_tried: dict[tuple[str, int], float] = {}
+_results: dict[str, dict[int, dict]] = {}  # 場:日付 -> レース番号 -> 結果
+_tried: dict[tuple[str, str, int], float] = {}
 _last_fetch = 0.0
 
 
@@ -54,14 +55,14 @@ def parse_result_text(text: str) -> dict:
     return out
 
 
-def _fetch(day: str, rno: int) -> dict:
+def _fetch(day: str, rno: int, venue: str = "15") -> dict:
     global _last_fetch
     wait = 1.0 - (time.time() - _last_fetch)
     if wait > 0:
         time.sleep(wait)
     _last_fetch = time.time()
     try:
-        r = httpx.get(URL.format(rno=rno, ymd=day.replace("-", "")), headers={"User-Agent": UA}, timeout=15)
+        r = httpx.get(URL.format(rno=rno, jcd=venue, ymd=day.replace("-", "")), headers={"User-Agent": UA}, timeout=15)
         if r.status_code == 200:
             return parse_result_text(page_text(r.text))
     except httpx.HTTPError:
@@ -69,12 +70,12 @@ def _fetch(day: str, rno: int) -> dict:
     return {}
 
 
-def results_for_today(races: list[dict], now: datetime | None = None) -> dict:
-    """races: [{date, race_no, close('HH:MM')}]。今日ぶんで、締切後のレースの結果を取って返す。"""
+def results_for_today(races: list[dict], now: datetime | None = None, venue: str = "15") -> dict:
+    """races: [{date, race_no, close('HH:MM')}]。今日ぶんで、締切後のレースの結果を取って返す。venue は場コード。"""
     now = now or datetime.now(JST)
     today = now.strftime("%Y-%m-%d")
     with _lock:
-        have = _results.setdefault(today, {})
+        have = _results.setdefault(f"{venue}:{today}", {})
         fetched = 0
         for r in sorted((x for x in races if x.get("date") == today), key=lambda x: x["race_no"]):
             rno = r["race_no"]
@@ -82,11 +83,11 @@ def results_for_today(races: list[dict], now: datetime | None = None) -> dict:
                 continue
             hh, mm = (int(x) for x in r["close"].split(":"))
             due = now.replace(hour=hh, minute=mm, second=0, microsecond=0) + timedelta(minutes=WAIT_AFTER_CLOSE_MIN)
-            if now < due or time.time() - _tried.get((today, rno), 0) < RETRY_SEC:
+            if now < due or time.time() - _tried.get((venue, today, rno), 0) < RETRY_SEC:
                 continue
-            _tried[(today, rno)] = time.time()
+            _tried[(venue, today, rno)] = time.time()
             fetched += 1
-            res = _fetch(today, rno)
+            res = _fetch(today, rno, venue)
             if res:
                 have[rno] = res
         return {"date": today, "asof": now.strftime("%H:%M"),

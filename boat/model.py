@@ -11,16 +11,16 @@ from __future__ import annotations
 
 import itertools
 import json
+import sys
 from datetime import date
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from boat import fan, parse
+from boat import fan, parse, venues
 
 HERE = Path(__file__).parent
-OUT = HERE / "site" / "data.json"
 START = date(2024, 1, 1)  # これより前は断片しか取っていない
 LAMBDA = 3.0  # L2正則化(過剰適合の抑え。2024年後半だけで選んだ。検証期間の2025年以降は見ていない)
 PRIOR_N = 6  # 選手の過去成績は平均に引き寄せる(少数サンプルの過大評価を防ぐ)
@@ -492,9 +492,11 @@ def race_cards(ent, races, meta, mask, P1, T, rows: np.ndarray, live=None, P1x=N
     return out
 
 
-def run(first_test: str | None = None) -> dict:
-    ent, races = parse.load(START)
-    live = load_live()
+def run(first_test: str | None = None, venue: str = venues.DEFAULT) -> dict:
+    """venue: 場コード(丸亀15・鳴門14・児島16)。場ごとに別のモデルで学習・検証する。"""
+    OUT = venues.site_file("data", venue)
+    ent, races = parse.load(START, venue)
+    live = load_live(venue)
     if live:  # 開催前レースの展示タイムを差し込む(展示込みモデル用)
         ent["ex_time"] = ent.apply(lambda r: _live_ex(live, r), axis=1) if "ex_time" not in ent else \
             ent["ex_time"].where(ent["ex_time"].notna(), ent.apply(lambda r: _live_ex(live, r), axis=1))
@@ -512,8 +514,9 @@ def run(first_test: str | None = None) -> dict:
     P1x, Tx = walk_forward(Xe, mask, meta, str(t0.date()), 3)
     evx = evaluate(meta, races, P1x, Tx, {})
     from boat import ev_check, odds_hist
-    odds_hist.unpack()  # 過去の締切時オッズ(boat/data/odds)があれば、市場との比較・期待値の検証もする
-    ev["odds_check"] = ev_check.run(P1, T, meta, races)
+    odds_hist.unpack(venue)  # 過去の締切時オッズ(boat/data/odds)があれば、市場との比較・期待値の検証もする
+    if odds_hist.load(venue):
+        ev["odds_check"] = ev_check.run(P1, T, meta, races, venue)
     ev["methods"] = alt_methods(e, meta, races, P1, P1x)
     ev["with_exhibition"] = {"logloss": evx["logloss"]["モデル"], "top1_acc": evx["top1_acc"]["モデル"],
                              "roi": evx["roi"]}
@@ -544,18 +547,19 @@ def run(first_test: str | None = None) -> dict:
     browse = race_cards(e, races, meta, mask, P1, T, recent)
 
     from boat import forward
-    n_rec = forward.record(upcoming)  # オッズが取れているレースだけ記録
+    n_rec = forward.record(upcoming, venue)  # オッズが取れているレースだけ記録
     for c in upcoming:
         c.pop("ev_all", None)
-    fwd = forward.evaluate(races)
+    fwd = forward.evaluate(races, venue)
     fwd["recorded_now"] = n_rec
 
     last_b = e["date"].max()
     cur = e[e["date"] == last_b].drop_duplicates("motor").sort_values("motor_2r", ascending=False)
     motors = [{"motor": int(r.motor), "m2r": float(r.motor_2r)} for r in cur.itertuples()]
 
-    nxt = next_series_info(ent)
+    nxt = next_series_info(ent, venue)
     data = {
+        "venue": venue, "venue_name": venues.VENUES[venue],
         "next": nxt,
         "built": str(date.today()), "live_asof": (live or {}).get("asof"), "last_result": str(last_done.date()),
         "validation": ev, "forward": fwd, "describe": describe(ent, races), "racers": racer_table(ent),
@@ -568,9 +572,9 @@ def run(first_test: str | None = None) -> dict:
     return data
 
 
-def next_series_info(ent: pd.DataFrame) -> dict | None:
-    """次の開催(公式の出場予定選手)に、期別成績と丸亀での過去成績を付ける。番組表が出る前の「下見」用。"""
-    f = HERE / "site" / "next.json"
+def next_series_info(ent: pd.DataFrame, venue: str = venues.DEFAULT) -> dict | None:
+    """次の開催(公式の出場予定選手)に、期別成績とその場での過去成績を付ける。番組表が出る前の「下見」用。"""
+    f = venues.site_file("next", venue)
     if not f.exists():
         return None
     nx = json.loads(f.read_text(encoding="utf-8"))
@@ -591,8 +595,8 @@ def next_series_info(ent: pd.DataFrame) -> dict | None:
     return nx
 
 
-def load_live() -> dict | None:
-    f = HERE / "site" / "live.json"
+def load_live(venue: str = venues.DEFAULT) -> dict | None:
+    f = venues.site_file("live", venue)
     return json.loads(f.read_text(encoding="utf-8")) if f.exists() else None
 
 
@@ -617,11 +621,12 @@ def _js(o):
 
 
 if __name__ == "__main__":
-    d = run()
-    v = d["validation"]
-    print(f"検証 {v['from']}〜{v['to']} {v['n_races']}レース")
-    print("logloss", {k: round(x, 4) for k, x in v["logloss"].items()})
-    print("本命的中率", {k: round(x, 3) for k, x in v["top1_acc"].items()})
-    for r in v["roi"]:
-        print(f"{r['label']:<36} n={r['n']:<5} 的中{r['hit']*100:5.1f}% 回収{r['roi']*100:5.1f}% (±{2*r['se']*100:.0f})")
-    print("予想対象:", len(d["upcoming"]), "レース")
+    for v in (sys.argv[1:] or list(venues.VENUES)):  # 例: python -m boat.model 14
+        d = run(venue=v)
+        r = d["validation"]
+        print(f"■ {venues.VENUES[v]}  検証 {r['from']}〜{r['to']} {r['n_races']}レース")
+        print("logloss", {k: round(x, 4) for k, x in r["logloss"].items()})
+        print("本命的中率", {k: round(x, 3) for k, x in r["top1_acc"].items()})
+        for x in r["roi"]:
+            print(f"{x['label']:<36} n={x['n']:<5} 的中{x['hit']*100:5.1f}% 回収{x['roi']*100:5.1f}% (±{2*x['se']*100:.0f})")
+        print("予想対象:", len(d["upcoming"]), "レース")

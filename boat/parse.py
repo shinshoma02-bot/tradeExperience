@@ -12,7 +12,9 @@ from pathlib import Path
 
 import pandas as pd
 
-CACHE = Path(__file__).parent / "_cache"
+from boat import venues
+
+CACHE = Path(__file__).parent / "_cache"  # 丸亀(既定)の置き場所。他の場は venues.cache_dir(場コード)
 
 CLASS = {"A1": 3, "A2": 2, "B1": 1, "B2": 0}
 # 丸亀の水面は海水(潮の影響あり)。風向は16方位のまま持つ
@@ -38,12 +40,12 @@ def _norm(t: str) -> str:
     return unicodedata.normalize("NFKC", t)
 
 
-def parse_b(text: str, d: date) -> tuple[list[dict], list[dict]]:
-    """番組表 → (races, entries)。"""
+def parse_b(text: str, d: date, name: str = "丸亀") -> tuple[list[dict], list[dict]]:
+    """番組表 → (races, entries)。name は場名(開催名の行を探すのに使う)。"""
     text = _norm(text)
     m = re.search(r"第\s*(\d+)日", text)
     day_no = int(m.group(1)) if m else None
-    m2 = re.search(r"丸\s*亀\s+\d+月\s*\d+日\s+(\S+)", text)
+    m2 = re.search(r"\s*".join(re.escape(c) for c in name) + r"\s+\d+月\s*\d+日\s+(\S+)", text)
     title = m2.group(1) if m2 else ""
     races, ents = [], []
     cur = None
@@ -114,8 +116,10 @@ def parse_k(text: str, d: date) -> tuple[list[dict], list[dict]]:
     return races, res
 
 
-def load(start: date | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """キャッシュ全部を読んで (entries, races) を返す。結果が無いレースも entries には残る(今後の予想用)。"""
+def load(start: date | None = None, venue: str = venues.DEFAULT) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """その場のキャッシュ全部を読んで (entries, races) を返す。結果が無いレースも entries には残る(今後の予想用)。"""
+    CACHE = venues.cache_dir(venue)
+    name = venues.VENUES[venue]
     ent_rows, race_b, res_rows, race_k = [], [], [], []
     for f in sorted(CACHE.glob("B*.txt")):
         d = date(int(f.stem[1:5]), int(f.stem[5:7]), int(f.stem[7:9]))
@@ -124,7 +128,7 @@ def load(start: date | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
         t = f.read_text(encoding="utf-8")
         if not t:
             continue
-        rb, eb = parse_b(t, d)
+        rb, eb = parse_b(t, d, name)
         race_b += rb
         ent_rows += eb
     for f in sorted(CACHE.glob("K*.txt")):
