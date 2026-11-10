@@ -467,6 +467,22 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
             raise HTTPException(404)
         return boat_json(f"data_{venue}.json")
 
+    @app.get("/boat/live_pred.json", include_in_schema=False)
+    def boat_live_pred(v: str = "15"):
+        """締切前の直前予想(展示タイムを反映)。v=場コード。展示が出ていないレースは含まない。"""
+        from fastapi import HTTPException
+        from fastapi.responses import JSONResponse
+
+        from app import boat_live
+        if v not in boat_live.VENUES:
+            raise HTTPException(404)
+        try:
+            pre = json.loads(boat_json("pre.json" if v == "15" else f"pre_{v}.json").body)
+            data = json.loads(boat_json("data.json" if v == "15" else f"data_{v}.json").body)
+        except Exception:
+            return JSONResponse({"venue": v, "races": []}, headers={"Cache-Control": "no-cache"})
+        return JSONResponse(boat_live.live_predictions(v, pre, data), headers={"Cache-Control": "no-cache"})
+
     @app.get("/boat/results.json", include_in_schema=False)
     def boat_results(v: str = "15"):
         """今日のレースで、終わったものの結果(公式の結果ページから。サーバー側でキャッシュ)。v=場コード。"""

@@ -253,6 +253,7 @@ function raceCard(r,kind){
     h+=`<div class="res"><b>結果</b> ${win}　3連単の配当 <b>${Math.round(r['3連単_pay']).toLocaleString()}円</b><br><span class="sub">2連単のおすすめ3点に${k2?'<b class="good">入っていました</b>':'入っていませんでした'} / 3連単のおすすめ5点に${k3?'<b class="good">入っていました</b>':'入っていませんでした'}</span></div>`;
   }
   const hasX=r.boats.some(b=>b.ex_time!=null&&!hasR);
+  if(r.live_asof&&!hasR)h+=`<div class="sub">展示タイムを反映した直前の予想(${r.live_asof}時点)</div>`;
   h+=`<table><tr><th>枠</th><th class="name">選手</th><th>勝つ確率</th>${hasX?'<th>展示</th>':''}${hasR?'<th>着</th>':''}</tr>`;
   for(const b of sorted(r).sort((a,b2)=>a.lane-b2.lane)){
     h+=`<tr><td>${lane(b.lane)}</td><td class="name">${b.name} <span class="pill">${b.cls}</span></td><td><div class="bar"><i style="width:${Math.min(100,b.q*160)}%"></i><b>${pc(b.q,0)}</b></div></td>${hasX?`<td>${b.ex_time??'-'}</td>`:''}${hasR?`<td class="${b.finish===1?'good':''}">${b.finish==null?'-':(b.finish||'×')}</td>`:''}</tr>`;
@@ -304,6 +305,20 @@ async function pollResults(){
     $('resNote').textContent=`結果は終わったレースから自動で表示されます(最終確認 ${res.asof})`;
   }catch(e){}
 }
+// 締切前の直前予想(展示タイムを反映して確率を出し直したもの)を取り込む。展示が出ていないレースは通常の予想のまま
+async function pollLive(){
+  try{
+    const lp=await (await fetch('live_pred.json?v='+V,{cache:'no-store'})).json();
+    let ch=false;
+    for(const x of (lp.races||[])){
+      const c=D.upcoming.find(r=>r.date===x.date&&r.race_no===x.race_no);
+      if(!c||c['3連単_combo'])continue;
+      c.boats.forEach(b=>{b.px=x.p[b.lane-1]});
+      c.top_x=x.top;c.top2_x=x.top2;c.live_asof=x.asof;ch=true;
+    }
+    if(ch){const date=DAYS[CURI]&&DAYS[CURI].date;showDay(Math.max(0,DAYS.findIndex(d=>d.date===date)),true)}
+  }catch(e){}
+}
 function initNext(){
   const n=D.next,c=$('nextCard');
   if(!n||!n.title){c.style.display='none';return}
@@ -335,7 +350,7 @@ function initUp(){
   const ex=D.upcoming.some(r=>r.live&&r.live.boats!==undefined||r.boats.some(b=>b.px!=null));
   $('upMeta').innerHTML=up.length?`レースをタップすると、くわしい予想と買い目が開きます。${D.live_asof?D.live_asof+' 時点':'(展示・オッズはまだ)'}の予想です。${ex?'展示タイムが出たレースは、展示を反映しています。':'展示タイムは各レースの直前に出ます。'}`:(D.next&&D.next.title?`いま${VN}は開催していません。次は <b>${md(D.next.from)} から</b>です。下は直近の結果です。`:'次の開催の番組表はまだ出ていません(前日の午後に出ます)。下は直近の結果です。');
   if(DAYS.length)showDay(0);else $('upHead').innerHTML=`<span class="venchip">${VN}</span> レース予想`;
-  pollResults();setInterval(()=>{if(!document.hidden)pollResults()},60000);
+  pollResults();pollLive();setInterval(()=>{if(!document.hidden){pollResults();pollLive()}},60000);
 }
 function fillSel(sel,vals,fmt){sel.innerHTML=vals.map(v=>`<option value="${v}">${fmt?fmt(v):v}</option>`).join('')}
 function tbl(id,head,rows){$(id).innerHTML='<tr>'+head.map(h=>`<th>${h}</th>`).join('')+'</tr>'+rows.map(r=>'<tr>'+r.map((c,i)=>`<td>${c}</td>`).join('')+'</tr>').join('')}

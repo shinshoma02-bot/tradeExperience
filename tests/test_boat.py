@@ -256,3 +256,59 @@ def test_write_summary_and_route(tmp_path, monkeypatch):
 
     monkeypatch.setattr(httpx, "get", boom)
     assert "venues" in make().get("/boat/summary.json").json()  # 取れないときは同梱のもの
+
+
+def test_live_probs_match_model_formula():
+    """直前予想の計算(サーバー側・標準ライブラリ)が、モデルの計算(numpy)と同じ値になること。"""
+    import json as _json
+
+    import numpy as _np
+
+    from app import boat_live
+    from boat import model as M
+    from boat import venues
+
+    pre = _json.loads((venues.site_file("pre", "14")).read_text(encoding="utf-8"))
+    r = pre["races"][0]
+    ws = [_np.array(w) for w in pre["weights"]]
+    ex = {1: 6.80, 2: 6.85, 3: 6.72, 4: 6.90, 5: 6.95, 6: 6.70}
+    p1, combos = boat_live.live_probs(r, pre["weights"], pre["ex_cols"], ex)
+    # 同じ計算をnumpyで: 展示の3列を、モデルの build と同じ式で埋める
+    X = _np.array(r["x"], float)
+    mask = _np.array([r["mask"]])
+    vals = [ex[l] for l in range(1, 7) if r["mask"][l - 1]]
+    mean = sum(vals) / len(vals)
+    for slot in range(6):
+        L = slot + 1
+        d = ex[L] - mean if r["mask"][slot] else 0.0
+        X[slot, pre["ex_cols"][0]] = d
+        X[slot, pre["ex_cols"][1]] = d * (L == 1)
+        X[slot, pre["ex_cols"][2]] = d * (L >= 4)
+    P1 = M.win_probs(X[None], mask, ws)[0]
+    T = M.trifecta(X[None], mask, ws)[0]
+    assert _np.allclose(p1, P1, atol=1e-9)
+    for i, j, k, p in combos:
+        assert abs(p - T[M.COMBOS.index((i, j, k))]) < 1e-9
+    assert abs(sum(p for *_x, p in combos) - 1) < 1e-9
+
+
+def test_parse_ex_from_before_page():
+    from app import boat_live
+    rows = "".join(f"<tr><td>{l}</td><td>選手{l}</td><td>{50 + l}.0kg</td><td>6.{80 + l}</td><td>0.{l}</td></tr>" for l in range(1, 7))  # 体重・展示・チルト
+    html = f"<html><body>{rows}</body></html>"
+    ex = boat_live.parse_ex(html)
+    assert ex == {1: 6.81, 2: 6.82, 3: 6.83, 4: 6.84, 5: 6.85, 6: 6.86}
+    assert boat_live.parse_ex("<html>まだ展示なし</html>") == {}
+
+
+def test_live_pred_endpoint_outside_window(tmp_path):
+    """締切の前後の時間帯の外では、外部へ取りに行かず空で返す。"""
+    from fastapi.testclient import TestClient
+
+    from app.config import Settings
+    from app.main import create_app
+
+    c = TestClient(create_app(Settings(webhook_secret="x", journal_path=str(tmp_path / "j.jsonl"))))
+    r = c.get("/boat/live_pred.json?v=14")
+    assert r.status_code == 200 and "races" in r.json()
+    assert c.get("/boat/live_pred.json?v=99").status_code == 404

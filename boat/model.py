@@ -540,6 +540,7 @@ def run(first_test: str | None = None, venue: str = venues.DEFAULT) -> dict:
         for r in dd["races"]:
             livemap[(pd.Timestamp(dd["date"]), r["race_no"])] = r
     upcoming = race_cards(e, races, meta, mask, P1u, Tu, up_rows, livemap, P1ux, Tux)
+    write_pre(venue, meta, mask, Xe, names_e, wse, up_rows)
 
     # 答え合わせ用: 検証期間(過去だけで学習した予想)の直近レース
     te_rows = np.where(~np.isnan(P1[:, 0]) & done)[0]
@@ -593,6 +594,21 @@ def next_series_info(ent: pd.DataFrame, venue: str = venues.DEFAULT) -> dict | N
             r.update({"m_n": int(h["n"]), "m_w1": round(float(h["w1"]), 3), "m_w3": round(float(h["w3"]), 3)})
     nx["racers"].sort(key=lambda r: -(r.get("win") or 0))
     return nx
+
+
+def write_pre(venue: str, meta, mask, Xe, names_e, wse, up_rows) -> None:
+    """直前予想用の素材(site/pre*.json)。展示タイムの列(ex_time・×1コース・×4-6コース)だけを空にして、
+    重みと一緒に保存する。サーバーはこれと直前の展示タイムから、同じ計算(標準ライブラリだけ)で確率を出す。"""
+    ex_cols = [names_e.index("ex_time"), names_e.index("ex_time×1コース"), names_e.index("ex_time×4-6コース")]
+    races = []
+    for ri in up_rows:
+        x = Xe[ri].copy()
+        x[:, ex_cols] = 0.0
+        races.append({"date": str(meta.iloc[ri]["date"].date()), "race_no": int(meta.iloc[ri]["race_no"]),
+                      "mask": [bool(v) for v in mask[ri]], "x": np.round(x, 6).tolist()})
+    out = {"venue": venue, "built": str(date.today()), "ex_cols": ex_cols,
+           "weights": [np.round(w, 8).tolist() for w in wse], "races": races}
+    venues.site_file("pre", venue).write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
 
 
 def write_summary() -> dict:
