@@ -10,7 +10,7 @@ on:
       - "boat/*.py"
       - "boat/site/index.html"
       - "keiba/**/*.py"
-      - "keiba/site/**"
+      - "keiba/site/index.html"  # 予想のJSONはGitHub rawから読むので、データ更新では再デプロイしない
       - "Dockerfile"
       - "fly.toml"
       - "requirements*.txt"

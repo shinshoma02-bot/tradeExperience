@@ -15,7 +15,7 @@
 - `research/` 検証スクリプト、`docs/research-2026-10.md` 結果。`pine/` は旧1時間足版(日足の本体とは別物)
 
 ## デプロイ(Fly.io、東京、アプリ名 tradeexperience、ブラウザ操作)
-- ブランチ `claude/trading-skeleton` から、ダッシュボードの **Deploy app** で再デプロイ(ユーザーが押す)
+- ブランチ `claude/trading-skeleton` へ push すると `.github/workflows/deploy-fly.yml` が自動で Fly に出す(コード・画面が変わったときだけ。予想データのpushでは走らない)。手動の時だけダッシュボードの **Deploy app**
 - **設定は Secrets で入れる**: `WEBHOOK_SECRET`、`RUNNER_ENABLED=true`、`NTFY_TOPIC`。`fly.toml` の [env] は反映されないことがあった
 - 記録は volume `data` の `/srv/data/journal.jsonl`。`fly.toml` の `[[mounts]]` を消すとデプロイが失敗する
 - 無料トライアルはカード登録するまで5分で止まる。IPが無いとURLが開かない(`fly ips allocate-v6` / `allocate-v4 --shared`)
@@ -53,11 +53,12 @@
 - JRAページの罠: ダートの馬場は `li.durt`(綴りミス)、Shift_JIS、年度別PDFは文字化けで使えない、旧クラス名(500万下など)は2019年以前
 - 出馬表: `python -m keiba.upcoming`(木曜16時ごろ更新、馬番は金・土、オッズは発売後)。全レース表示(`pw01des…`)の表に単勝オッズまで入る。オッズが無いと人気なしモデル
 - データは `keiba/data/all/<年>.csv.gz`(2016〜、約52万頭・3.7万レース、21MB)。`.gitignore`の`data/`を`!keiba/data/`で除外してコミット済み(コンテナは使い捨て)
-- 更新手順: `python -m keiba.model upcoming`(今週の予想)→ 必要なら `scrape_all`→`python -m keiba.model`(検証、約2分)→ コミット→Flyで再デプロイ
+- 更新手順: `python -m keiba.model upcoming`(今週の予想)→ 必要なら `scrape_all`→`python -m keiba.model`(検証、約2分)→ コミットして push。**再デプロイは不要**: `/keiba/data.json`・`upcoming.json`・`forward.json` は `app/site_data.py` が GitHub raw から1分キャッシュで読む(ボートと同じ。取れなければ同梱ファイル)
 - **検証(2020〜2026、23,655レース、年ごとに過去だけで学習)**: 1番人気買い 単勝79.8%/複勝84.9%(±約1%)。独自+人気モデルの本命は1番人気とほぼ同じで回収率も同じ。人気なしモデルは単勝74%。「モデルが人気より高く見た馬」を全部買うと単勝75%(1.1倍以上)→60%(3倍以上)と**高いほど悪化**(穴馬は割高)。クラス別にも勝てる所なし。**控除率(約20%)を超える予想は作れていない**
 - **前向き記録**(`keiba/forward.py`): 過去の全頭オッズは無料で取れないので、発走前の予想(勝率)とオッズを `keiba/data/forward.json` に記録し、結果が出たら実際の払戻で答え合わせ(`site/forward.json`)。期待値(勝率×オッズ)の買い方が儲かるかを後知恵なしで検証する。数百〜千レース貯まるまで結論は出さない
-- **定期更新**: `scripts/keiba_weekly.sh`(依存は `requirements-keiba.txt`。`requirements.txt` にsklearn等は入れない=Flyのイメージが重くなる)。木〜月の10:23・17:23(日本時間)にスケジュールタスク(trig_01QKSUZdqe92tTbS3PEfUkcT)で実行。取得済みの開催日はCSVを見て飛ばし、**当日分は途中の可能性があるので取らない**(前日まで)。FlyへのデプロイはユーザーがDeploy appを押す(定期更新はpushまで)
+- **定期更新**: `scripts/keiba_weekly.sh`(依存は `requirements-keiba.txt`。`requirements.txt` にsklearn等は入れない=Flyのイメージが重くなる)。木〜月の10:23・17:23(日本時間)にスケジュールタスク(trig_01QKSUZdqe92tTbS3PEfUkcT)で実行。取得済みの開催日はCSVを見て飛ばし、**当日分は途中の可能性があるので取らない**(前日まで)。Flyへの自動デプロイは `.github/workflows/deploy-fly.yml` が担当(push 時、`app/`・`keiba/**/*.py`・`keiba/site/index.html`・`Dockerfile` 等が変わったときだけ。JSON のデータ更新では走らない)
 - 今後の候補: 血統・調教などの追加(無料で取れる範囲)、前向き記録がたまったら期待値戦略の判定
+- **デプロイの仕組み(2026-11)**: 予想データ(keiba/boat とも)は GitHub raw から読む → データ更新で再デプロイ不要。コードや画面(index.html)が変わったときだけ `deploy-fly.yml` が自動で Fly に出す。再デプロイ時はサーバーが再起動する(メモリのキャッシュは作り直し、トレードの記録は volume `/srv/data` から復元)
 
 ## ボートレース丸亀予想サイト(`boat/`、`/boat/` で公開、2026-11)
 - 元データは公式のダウンロードデータ(番組表B・競走成績K、`www1.mbrace.or.jp/od2/`、LZH、robots全許可)。全24場入りなので丸亀(場コード15)だけ抜く。1秒に1リクエスト、応答が約10秒なので並列8本で待ちを埋める。2024-01〜(約2,000ファイル、30分強)。直前情報(展示・オッズ)は boatrace.jp の beforeinfo/oddstf/odds3t
@@ -69,7 +70,7 @@
 - **特徴量の追加(2026-11)**: 公式「レーサー期別成績」(`boat/fan.py`、`fanYYMM.lzh` を年2回、固定長。コース別の出走・着順・平均STが入る)と、今節(同じ開催の前日まで)の平均着順/ST(`add_series`)を足した。採用は2024年後半だけで決め(logloss 1.238→1.214)、検証期間でも 1.212→1.199(差は±0.006程度)。期別成績は集計期間の終わりから2か月後以降のレースにだけ使う(先読み防止)。**回収率は相変わらず全て100%未満**(モデル本命の単勝93%、1号艇90%、モーター2連率最高70%、今節の調子最高72%、展示最速76%)→ `予想の成績`タブの「予想のしかた別」
 - 丸亀が開催しない日(11/7〜11/10など)は公式の番組表Bに丸亀(15)のブロックが無い=ファイルは取れるが丸亀が空。直近3日の空は保存しない/取り直す(`scrape.get_day`)。`live.json` の空の箱は作らない。開催が無い日は `boat_daily.sh` がコミットしない(ただし次の開催の下見 `boat/site/next.json` や期別成績が変わったときは別)
 - 次の開催の下見: 月間スケジュール(`/race/monthlyschedule?ym=`)の丸亀行から開催名・グレード・初日、`/race/assen?jcd=15&hd=`(出場予定レーサー一覧、番組表より前に出る)から選手を取る(`upcoming.next_series`)。画面は「次の開催の下見」カード
-- Fly: 画面・アプリのコードを変えたら `.github/workflows/deploy-fly.yml` が自動デプロイ(Secrets `FLY_API_TOKEN`)。予想データ(data.json等)はGitHub rawから読むので再デプロイ不要。結果は `/boat/results.json`(`app/boat_live.py` がサーバー側で公式から取る)
+- Fly: 画面・アプリのコードを変えたら `.github/workflows/deploy-fly.yml` が自動デプロイ(Secrets `FLY_API_TOKEN`)。予想データ(data.json等)はGitHub rawから読むので再デプロイ不要(`app/site_data.py` を競馬と共通で使用)。結果は `/boat/results.json`(`app/boat_live.py` がサーバー側で公式から取る)
 - **四国3場(2026-11)**: 丸亀15・鳴門14・児島16(`boat/venues.py` の `VENUES` に1行足せば増やせる)。公式のB/K LZHは全24場入りなので、1回のダウンロードから全対象場のブロックを場ごとの置き場に保存(丸亀だけ昔のまま `_cache/`・`data/raw/`、他は `_cache/14/`・`data/raw/14/` など)。場ごとに別モデル: `python -m boat.model [場コード…]`、出力は `data.json`(丸亀)/`data_14.json`/`data_16.json`、`live_<場>.json`、`next_<場>.json`、軽い開催状況 `summary.json`。検証(2025〜): 丸亀 logloss 1.199・本命単勝93% / 児島 1.217・92% / 鳴門 1.329・84%(荒れやすい)。前向き記録は `venue` つき。**混合確率の係数は丸亀で決めたもので、他の場には適用しない**(過去オッズ `boat.odds_hist fetch <開始日> <場>` を取って前半で決め直してから)
 - 画面(`boat/site/index.html`): 上に固定の会場プルダウン(開催状況つき、`summary.json`)、`?v=14` と localStorage で保持、見出し・各レースに会場名、タブは 予想/過去の結果/データ。休みの会場には開催中の会場への案内。一般公開を見据えた注意書き(20歳未満不可・保証なし・公式と無関係)。**boatrace.jp のデータの再掲載・公開が利用規約上よいかは未確認(要確認)**
 - 定期更新(このセッションに発火するスケジュール)は14/16/18/20/21時台。予約実行の新規セッションはpushできない(リポジトリ未接続)ため、必ず既存セッションに向ける

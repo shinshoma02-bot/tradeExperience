@@ -419,10 +419,27 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
         bt_cache[key] = (time.time(), out)
         return out
 
-    # 競馬予想サイト(静的ファイル。/keiba/ で開く)
+    # 競馬予想サイト(/keiba/)。予想JSONは定期更新のたびにGitHubへpushされ、ボートと同じくrawから1分キャッシュで読む
+    # (再デプロイ不要)。ルートは静的マウントより前に登録する(先に登録したほうが勝つ)
     from pathlib import Path
     from fastapi.staticfiles import StaticFiles
+
+    from app.site_data import SiteJSON
     site = Path(__file__).resolve().parent.parent / "keiba" / "site"
+    keiba_json = SiteJSON(site, "keiba/site/").response
+
+    @app.get("/keiba/data.json", include_in_schema=False)
+    def keiba_data():
+        return keiba_json("data.json")
+
+    @app.get("/keiba/upcoming.json", include_in_schema=False)
+    def keiba_upcoming():
+        return keiba_json("upcoming.json")
+
+    @app.get("/keiba/forward.json", include_in_schema=False)
+    def keiba_forward():
+        return keiba_json("forward.json")
+
     if site.is_dir():
         app.mount("/keiba", StaticFiles(directory=site, html=True), name="keiba")
     # 高松パチンコ台データ分析(/pachinko/)
@@ -432,23 +449,7 @@ def create_app(settings: Settings | None = None, runner_fetch=None, notifier: No
     # 丸亀ボート予想サイト(/boat/)。予想データ(data.json)は定期更新のたびにGitHubへpushされるので、
     # Deployし直さなくても最新が出るよう、GitHubから取って1分キャッシュする(取れなければ同梱のデータ)
     boat_site = Path(__file__).resolve().parent.parent / "boat" / "site"
-    boat_cache: dict = {}  # ファイル名 -> {"t": 取得時刻, "body": 中身}
-    boat_raw = ("https://raw.githubusercontent.com/shinshoma02-bot/tradeExperience/"
-                "claude/trading-skeleton/boat/site/")
-
-    def boat_json(fname: str):
-        from fastapi.responses import FileResponse, Response
-        c = boat_cache.setdefault(fname, {"t": 0.0, "body": None})
-        if c["body"] is None or time.time() - c["t"] > 60:
-            try:
-                r = httpx.get(boat_raw + fname, timeout=10)
-                if r.status_code == 200 and r.content.startswith(b"{"):
-                    c["body"], c["t"] = r.content, time.time()
-            except httpx.HTTPError:
-                pass
-        if c["body"] is not None:
-            return Response(c["body"], media_type="application/json", headers={"Cache-Control": "no-cache"})
-        return FileResponse(boat_site / fname, media_type="application/json")
+    boat_json = SiteJSON(boat_site, "boat/site/").response
 
     @app.get("/boat/data.json", include_in_schema=False)  # 丸亀(既定)
     def boat_data():
